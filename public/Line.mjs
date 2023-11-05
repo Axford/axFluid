@@ -2,8 +2,8 @@
 
 export default class Line {
     constructor(p0, p1) {
-        this.p0 = p0;
-        this.p1 = p1;
+        this.p0 = p0.clone();
+        this.p1 = p1.clone();
     }
 
     intersects(line) {
@@ -29,7 +29,7 @@ export default class Line {
         } else {
             lambda = ((s - q) * (r - a) + (p - r) * (s - b)) / det;
             gamma = ((b - d) * (r - a) + (c - a) * (s - b)) / det;
-            if ( (0 < lambda && lambda < 1) && (0 < gamma && gamma < 1) ) {
+            if ( (0 <= lambda && lambda <= 1) && (0 <= gamma && gamma <= 1) ) {
                 res.intersects = true;
                 // calculate point of intersection
                 res.x = a + lambda * (c-a);
@@ -40,7 +40,7 @@ export default class Line {
     }
 
     whichSide(p) {
-        return (this.p1.x - this.p0.x)*(p.y - this.p0.y) - (this.p1.y - this.p0.y)*(p.x - this.p0.x) > 0;
+        return (this.p1.x - this.p0.x)*(p.y - this.p0.y) - (this.p1.y - this.p0.y)*(p.x - this.p0.x);
     }
 
 }
