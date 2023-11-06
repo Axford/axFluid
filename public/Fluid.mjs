@@ -33,7 +33,11 @@ export default class Fluid {
         bb.addPoint(new Vector(x1,y1));
         bb.addPoint(new Vector(x2,y2));
         bb.finalise();
+        // default u and v vector positions
+        bb.up = new Vector(x1, (y1+y2)/2);
+        bb.vp = new Vector((x1+x2)/2, y1);
         this.cellBounds.push(bb);
+
       }
     }
 
@@ -67,12 +71,16 @@ export default class Fluid {
         // default all cells to empty
         this.s[ci] = 1.0;
 
+        // set some cells solid for testing
+        //if (i >= 3 && i <= 4 && j >= 3 && j <= 3) this.s[ci] = 0;
+
         var cbb = this.cellBounds[ci];
 
         cbb.li = null;
         cbb.ti = null;
         cbb.ri = null;
         cbb.bi = null;
+        cbb.points = [];
 
         // compare to bounds
         if (obstacle.bb.overlaps(cbb)) {
@@ -148,6 +156,14 @@ export default class Fluid {
                     } else if (ia.length == 1) {
                         cbb.bi = ia[0];
                         points.push(new Vector(ia[0].x, ia[0].y));
+                        // re-calculate position of vp vector
+                        if (cbb.blc ) {
+                            // open area is between intersection and bottomRight
+                            cbb.vp.x = (cbb.bi.x + cbb.bottomRight.x) / 2;
+                        } else {
+                            // open area if between bottom left and intersection
+                            cbb.vp.x = (cbb.bi.x + cbb.bottomLeft.x) / 2;
+                        }
                     } else {
                         cbb.bi = null;
                     }
@@ -164,6 +180,14 @@ export default class Fluid {
                     } else if (ia.length == 1) {
                         cbb.li = ia[0];
                         points.push(new Vector(ia[0].x, ia[0].y));
+                        // re-calculate position of up vector
+                        if (cbb.tlc ) {
+                            // open area is between intersection and bottomLeft
+                            cbb.up.y = (cbb.li.y + cbb.bottomLeft.y) / 2;
+                        } else {
+                            // open area if between top left and intersection
+                            cbb.up.y = (cbb.li.y + cbb.topLeft.y) / 2;
+                        }
                     } else {
                         cbb.li = null;
                     }
@@ -179,16 +203,13 @@ export default class Fluid {
                     }
                     area = 0.5 * Math.abs(area);
 
-                    console.log(points);
-                    
+                    cbb.points = points;
 
                     // set s based on area unobscured
                     var s = 1 - area / this.cellArea;
                     if (s > 1) s = 1;
                     if (s < 0) s = 0;
                     this.s[ci] = s;
-
-                    console.log(i,j,s);
                 }
             }
 
@@ -219,7 +240,12 @@ export default class Fluid {
       for (var i = 1; i < this.numX - 1; i++) {
         for (var j = 1; j < this.numY - 1; j++) {
           // this cell solid if s=0, so skip as nothing to solve
-          if (this.s[i * n + j] == 0.0) continue;
+          if (this.s[i * n + j] == 0.0) {
+            // force u and v to zero
+            this.u[i * n + j] = 0;
+            this.v[i * n + j] = 0;
+            continue;
+          }
 
           var sx0 = this.s[(i - 1) * n + j];
           var sx1 = this.s[(i + 1) * n + j];
@@ -227,7 +253,12 @@ export default class Fluid {
           var sy1 = this.s[i * n + j + 1];
           var s = sx0 + sx1 + sy0 + sy1;
           // if all neighbour cells are solid (s=0), then also nothing to solve
-          if (s == 0.0) continue;
+          if (s == 0.0) {
+            // force u and v to zero
+            this.u[i * n + j] = 0;
+            this.v[i * n + j] = 0;
+            continue;
+          }
 
           var div =
             this.u[(i + 1) * n + j] -
@@ -235,7 +266,7 @@ export default class Fluid {
             this.v[i * n + j + 1] -
             this.v[i * n + j];
 
-          var p = -div / s;
+          var p = -div/s;
           p *= this.scene.overRelaxation;
           this.p[i * n + j] += cp * p;
 
@@ -266,6 +297,7 @@ export default class Fluid {
     var h1 = 1.0 / h;
     var h2 = 0.5 * h;
 
+    // ensure x and y coords are within bounds
     x = Math.max(Math.min(x, this.numX * h), h);
     y = Math.max(Math.min(y, this.numY * h), h);
 
@@ -343,6 +375,8 @@ export default class Fluid {
     for (var i = 1; i < this.numX; i++) {
       for (var j = 1; j < this.numY; j++) {
         //cnt++;
+        var ci = i * n + j;
+        var cbb = this.cellBounds[ci];
 
         // u component
         if (
@@ -350,15 +384,26 @@ export default class Fluid {
           this.s[(i - 1) * n + j] != 0.0 &&
           j < this.numY - 1
         ) {
-          var x = i * h;
-          var y = j * h + h2;
-          var u = this.u[i * n + j];
-          var v = this.avgV(i, j);
-          //						var v = this.sampleField(x,y, V_FIELD);
-          x = x - dt * u;
-          y = y - dt * v;
-          u = this.sampleField(x, y, this.U_FIELD);
-          this.newU[i * n + j] = u;
+          var x = cbb.up.x;
+          var y = cbb.up.y;
+          var blocked = false;
+          if (this.s[i * n + j] < 1) {
+            if (cbb.tlc && cbb.blc) {
+                // entire left edge is inside the obstacle, so no velocity can flow
+                blocked = true;
+                this.newU[ci] = 0;
+            }
+          }
+
+          if (!blocked) {
+            var u = this.u[i * n + j];
+            var v = this.avgV(i, j);
+            //						var v = this.sampleField(x,y, V_FIELD);
+            x = x - dt * u;
+            y = y - dt * v;
+            u = this.sampleField(x, y, this.U_FIELD);
+            this.newU[i * n + j] = u;
+          }
         }
         // v component
         if (
@@ -366,15 +411,25 @@ export default class Fluid {
           this.s[i * n + j - 1] != 0.0 &&
           i < this.numX - 1
         ) {
-          var x = i * h + h2;
-          var y = j * h;
-          var u = this.avgU(i, j);
-          //						var u = this.sampleField(x,y, U_FIELD);
-          var v = this.v[i * n + j];
-          x = x - dt * u;
-          y = y - dt * v;
-          v = this.sampleField(x, y, this.V_FIELD);
-          this.newV[i * n + j] = v;
+          var x = cbb.vp.x;
+          var y = cbb.vp.y;
+          var blocked = false;
+          if (this.s[i * n + j] < 1) {
+            if (cbb.blc && cbb.brc) {
+                // entire bottom edge is inside the obstacle, so no velocity can flow
+                blocked = true;
+                this.newV[ci] = 0;
+            }
+          }
+          if (!blocked) {
+            var u = this.avgU(i, j);
+            //						var u = this.sampleField(x,y, U_FIELD);
+            var v = this.v[i * n + j];
+            x = x - dt * u;
+            y = y - dt * v;
+            v = this.sampleField(x, y, this.V_FIELD);
+            this.newV[i * n + j] = v;
+          }
         }
       }
     }

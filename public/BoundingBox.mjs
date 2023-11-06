@@ -20,10 +20,10 @@ export default class BoundingBox {
     addPoint(p) {
         if (this.initialised) {
             if (p.x < this.topLeft.x) this.topLeft.x = p.x;
-            if (p.y < this.topLeft.y) this.topLeft.y = p.y;
+            if (p.y > this.topLeft.y) this.topLeft.y = p.y;
 
             if (p.x > this.bottomRight.x) this.bottomRight.x = p.x;
-            if (p.y > this.bottomRight.y) this.bottomRight.y = p.y;
+            if (p.y < this.bottomRight.y) this.bottomRight.y = p.y;
 
         } else {
             this.topLeft.set(p);
@@ -51,9 +51,9 @@ export default class BoundingBox {
 
         return (
             p.x >= this.topLeft.x && 
-                p.y >= this.topLeft.y &&
+                p.y <= this.topLeft.y &&
                 p.x <= this.bottomRight.x &&
-                p.y <= this.bottomRight.y
+                p.y >= this.bottomRight.y
                );
     }
 
@@ -62,9 +62,9 @@ export default class BoundingBox {
 
         return (
             x >= this.topLeft.x && 
-                y >= this.topLeft.y &&
+                y <= this.topLeft.y &&
                 x <= this.bottomRight.x &&
-                y <= this.bottomRight.y
+                y >= this.bottomRight.y
                );
     }
 

@@ -18,8 +18,9 @@ var cScale = canvas.height / simHeight;
 var simWidth = canvas.width / cScale;
 
 var airfoilAngle = 0;
-var airfoilSteps = 1000;
-var airfoilProfile = [];
+var airfoilSteps = 100;
+var airfoilUpperProfile = [];
+var airfoilLowerProfile = [];
 
 // obstacle is a polygon
 var obstacle = new Polygon();
@@ -36,6 +37,49 @@ function cY(y) {
   return canvas.height - y * cScale;
 }
 
+
+function setupAirfoil() {
+    airfoilUpperProfile = [];
+    airfoilLowerProfile = [];
+  
+    var at = 0.18; // 18% thickness
+    var m = 0.08; // camber
+    var p = 0.4;  // point of max camber
+  
+    for (var i = 0; i < airfoilSteps; i++) {
+      var ax = i / (airfoilSteps - 1);
+
+      var yc;
+      if (ax <= p) {
+        yc = (m / (p*p)) * (2 * p * ax - ax*ax);
+      } else {
+        yc = (m / Math.pow(1 - p,2)) * ((1 - 2*p) + 2*p*ax - ax*ax);
+      }
+
+      var yt =
+        5 *
+        at *
+        (0.2969 * Math.sqrt(ax) -
+          0.126 * ax -
+          0.3516 * Math.pow(ax, 2) +
+          0.2843 * Math.pow(ax, 3) -
+          0.1015 * Math.pow(ax, 4));
+      
+      var theta = Math.atan2(yc, ax);
+
+      var xu = ax - yt * Math.sin(theta);
+      var yu = yc + yt * Math.cos(theta);
+
+      var xl = ax + yt * Math.sin(theta);
+      var yl = yc - yt * Math.cos(theta);
+
+      airfoilUpperProfile.push(new Vector(xu,yu));
+      airfoilLowerProfile.push(new Vector(xl,yl));
+    }
+  }
+
+
+
 // ----------------- start of simulator ------------------------------
 
 var scene = {
@@ -51,31 +95,11 @@ var scene = {
   sceneNr: 0,
   showObstacle: false,
   showStreamlines: false,
-  showVelocities: false,
+  showVelocities: true,
   showPressure: false,
   showSmoke: true,
   fluid: null,
 };
-
-function setupAirfoil() {
-  airfoilProfile = [];
-
-  var at = 0.18; // 18% thickness
-
-  for (var i = 0; i < airfoilSteps; i++) {
-    var ax = i / (airfoilSteps - 1);
-    var yt =
-      5 *
-      at *
-      (0.2969 * Math.sqrt(ax) -
-        0.126 * ax -
-        0.3516 * Math.pow(ax, 2) +
-        0.2843 * Math.pow(ax, 3) -
-        0.1015 * Math.pow(ax, 4));
-    //yt = at/10;
-    airfoilProfile.push(yt);
-  }
-}
 
 function setupScene(sceneNr = 0) {
   console.log("setupScene", sceneNr);
@@ -91,7 +115,7 @@ function setupScene(sceneNr = 0) {
   var res = 100;
 
   if (sceneNr == 0) res = 50;
-  else if (sceneNr == 1) res = 50;
+  else if (sceneNr == 1) res = 20;
   else if (sceneNr == 3) res = 200;
 
   var domainHeight = 1.0;
@@ -140,7 +164,7 @@ function setupScene(sceneNr = 0) {
     scene.showPressure = true;
     scene.showSmoke = false;
     scene.showStreamlines = false;
-    scene.showVelocities = false;
+    scene.showVelocities = true;
 
     if (sceneNr == 3) {
       scene.dt = 1.0 / 120.0;
@@ -279,27 +303,36 @@ function draw() {
   c.putImageData(id, 0, 0);
 
   if (scene.showVelocities) {
-    c.strokeStyle = "#000000";
-    scale = 0.02;
+    c.strokeStyle = "#fff";
+    var scale = 0.02;
 
     for (var i = 0; i < f.numX; i++) {
       for (var j = 0; j < f.numY; j++) {
         var u = f.u[i * n + j];
         var v = f.v[i * n + j];
 
+        var ci = i * n + j;
+        var bb = f.cellBounds[ci];
+
         c.beginPath();
 
-        x0 = cX(i * h);
-        x1 = cX(i * h + u * scale);
-        y = cY((j + 0.5) * h);
+        //var x0 = cX(i * h);
+        //var x1 = cX(i * h + u * scale);
+        //var y = cY((j + 0.5) * h);
+        var x0 = cX(bb.up.x);
+        var x1 = cX(bb.up.x + u * scale);
+        var y = cY(bb.up.y);
 
         c.moveTo(x0, y);
         c.lineTo(x1, y);
         c.stroke();
 
-        x = cX((i + 0.5) * h);
-        y0 = cY(j * h);
-        y1 = cY(j * h + v * scale);
+        //var x = cX((i + 0.5) * h);
+        //var y0 = cY(j * h);
+        //var y1 = cY(j * h + v * scale);
+        var x = cX(bb.vp.x);
+        var y0 = cY(bb.vp.y);
+        var y1 = cY(bb.vp.y + v * scale);
 
         c.beginPath();
         c.moveTo(x, y0);
@@ -342,7 +375,7 @@ function draw() {
   }
 
   if (scene.showObstacle || true) {
-    c.lineWidth = 3.0;
+    c.lineWidth = 1.0;
     c.strokeStyle = "#fff";
     c.beginPath();
 
@@ -362,52 +395,59 @@ function draw() {
   }
 
   // draw cell bounds
-  c.lineWidth = 1.0;
+  if (true) {
+    c.lineWidth = 1.0;
 
-  for (var i = 0; i < f.numX; i++) {
-    for (var j = 0; j < f.numY; j++) {
-      var ci = i * n + j;
-      var bb = f.cellBounds[ci];
-      c.strokeStyle = "#aaa";
-      c.beginPath();
-      c.moveTo(cX(bb.bottomLeft.x), cY(bb.bottomLeft.y));
-      c.lineTo(cX(bb.topLeft.x), cY(bb.topLeft.y));
-      c.lineTo(cX(bb.topRight.x), cY(bb.topRight.y));
-      c.stroke();
+    for (var i = 0; i < f.numX; i++) {
+        for (var j = 0; j < f.numY; j++) {
+        var ci = i * n + j;
+        var bb = f.cellBounds[ci];
+        if (f.s[ci] < 1 && bb.points && bb.points.length>0) {
+            c.strokeStyle = "#aaa";
+            // draw intersection volume
+            c.beginPath();
+            c.moveTo(cX(bb.points[0].x), cY(bb.points[0].y));
+            for (var k=1; k<bb.points.length; k++) {
+                c.lineTo(cX(bb.points[k].x), cY(bb.points[k].y));
+            }
+            c.closePath();
+            c.stroke();
+        }
 
-      // see if we have any intersections to draw
-      if (bb.li) {
-        c.fillStyle = '#f00';
-        c.beginPath();
-        c.arc(cX(bb.li.x), cY(bb.li.y),3,0,2*Math.PI);
-        c.stroke();
-      }
+        // see if we have any intersections to draw
+        if (bb.li) {
+            c.fillStyle = '#f00';
+            c.beginPath();
+            c.arc(cX(bb.li.x), cY(bb.li.y),3,0,2*Math.PI);
+            c.fill();
+        }
 
-      if (bb.ti) {
-        c.fillStyle = '#f00';
-        c.beginPath();
-        c.arc(cX(bb.ti.x), cY(bb.ti.y),3,0,2*Math.PI);
-        c.stroke();
-      }
+        if (bb.ti) {
+            c.fillStyle = '#f00';
+            c.beginPath();
+            c.arc(cX(bb.ti.x), cY(bb.ti.y),3,0,2*Math.PI);
+            c.fill();
+        }
 
-      if (bb.ri) {
-        c.fillStyle = '#00f';
-        c.beginPath();
-        c.arc(cX(bb.ri.x), cY(bb.ri.y),2,0,2*Math.PI);
-        c.fill();
-      }
+        if (bb.ri) {
+            c.fillStyle = '#00f';
+            c.beginPath();
+            c.arc(cX(bb.ri.x), cY(bb.ri.y),2,0,2*Math.PI);
+            c.fill();
+        }
 
-      if (bb.bi) {
-        c.fillStyle = '#00f';
-        c.beginPath();
-        c.arc(cX(bb.bi.x), cY(bb.bi.y),2,0,2*Math.PI);
-        c.fill();
-      }
+        if (bb.bi) {
+            c.fillStyle = '#00f';
+            c.beginPath();
+            c.arc(cX(bb.bi.x), cY(bb.bi.y),2,0,2*Math.PI);
+            c.fill();
+        }
+        }
     }
-  }
 
-  c.stroke();
-  c.lineWidth = 1.0;
+    c.stroke();
+    c.lineWidth = 1.0;
+  }
 
   var y = 130;
   for (const [key, t] of Object.entries(scene.fluid.timers)) {
@@ -458,13 +498,10 @@ function setAirfoilObstacle(x, y, reset) {
   var sn = Math.sin(ang);
 
   // generate line segments for top of airfoil
-  var steps = 50;
   var lp = new Vector(x, y);
-  for (var i = 0; i < steps; i++) {
-    var ax = i / (steps - 1);
-    var xt = ac * ax;
-    var ai = Math.round((airfoilSteps - 1) * ax);
-    var yt = ac * airfoilProfile[ai];
+  for (var i = 0; i < airfoilSteps; i++) {
+    var xt = ac * airfoilUpperProfile[i].x;
+    var yt = ac * airfoilUpperProfile[i].y;
 
     var rx = xt * cs - yt * sn;
     var ry = xt * sn + yt * cs;
@@ -480,11 +517,9 @@ function setAirfoilObstacle(x, y, reset) {
     lp.y = y1;
   }
   // generate line segments for bottom of airfoil
-  for (var i = 0; i < steps; i++) {
-    var ax = 1 - i / (steps - 1);
-    var xt = ac * ax;
-    var ai = Math.round((airfoilSteps - 1) * ax);
-    var yt = -ac * airfoilProfile[ai];
+  for (var i = 0; i < airfoilSteps; i++) {
+    var xt = ac * airfoilLowerProfile[airfoilSteps - i - 1].x;
+    var yt = ac * airfoilLowerProfile[airfoilSteps - i - 1].y;
 
     var rx = xt * cs - yt * sn;
     var ry = xt * sn + yt * cs;
@@ -657,6 +692,10 @@ function init() {
   $("#hiresWindBtn").on("click", () => {
     setupScene(3);
   });
+
+  $('#velocityButton').on('click', ()=>{
+    scene.showVelocities = !scene.showVelocities;
+  })
 
   $("#smokeButton").on("click", () => {
     scene.showSmoke = !scene.showSmoke;
