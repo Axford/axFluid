@@ -35,7 +35,9 @@ export default class Fluid {
         bb.finalise();
         // default u and v vector positions
         bb.up = new Vector(x1, (y1+y2)/2);
+        bb.uo = 0.5; // offset in y axis
         bb.vp = new Vector((x1+x2)/2, y1);
+        bb.vo = 0.5; //offset in x axis
         this.cellBounds.push(bb);
 
       }
@@ -80,6 +82,8 @@ export default class Fluid {
         cbb.ti = null;
         cbb.ri = null;
         cbb.bi = null;
+        cbb.uo = 0.5;
+        cbb.vo = 0.5;
         cbb.points = [];
 
         // compare to bounds
@@ -164,6 +168,7 @@ export default class Fluid {
                             // open area if between bottom left and intersection
                             cbb.vp.x = (cbb.bi.x + cbb.bottomLeft.x) / 2;
                         }
+                        cbb.vo = (cbb.vp.x - cbb.bottomLeft.x) / this.h;
                     } else {
                         cbb.bi = null;
                     }
@@ -188,6 +193,7 @@ export default class Fluid {
                             // open area if between top left and intersection
                             cbb.up.y = (cbb.li.y + cbb.topLeft.y) / 2;
                         }
+                        cbb.uo = (cbb.vp.y - cbb.bottomLeft.y) / this.h;
                     } else {
                         cbb.li = null;
                     }
@@ -344,23 +350,25 @@ export default class Fluid {
 
   avgU(i, j) {
     var n = this.numY;
+    var bias = this.cellBounds[i * n + j].uo;
     var u =
-      (this.u[i * n + j - 1] +
-        this.u[i * n + j] +
-        this.u[(i + 1) * n + j - 1] +
-        this.u[(i + 1) * n + j]) *
-      0.25;
+      ((1-bias) * this.u[i * n + j - 1] +
+      (1-bias) *this.u[i * n + j] +
+        bias * this.u[(i + 1) * n + j - 1] +
+        bias * this.u[(i + 1) * n + j]) *
+      0.125;
     return u;
   }
 
   avgV(i, j) {
     var n = this.numY;
+    var bias = this.cellBounds[i * n + j].vo;
     var v =
-      (this.v[(i - 1) * n + j] +
-        this.v[i * n + j] +
-        this.v[(i - 1) * n + j + 1] +
-        this.v[i * n + j + 1]) *
-      0.25;
+      ((1-bias) * this.v[(i - 1) * n + j] +
+        (1-bias) * this.v[i * n + j] +
+        bias * this.v[(i - 1) * n + j + 1] +
+        bias * this.v[i * n + j + 1]) *
+      0.125;
     return v;
   }
 

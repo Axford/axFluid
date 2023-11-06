@@ -43,8 +43,8 @@ function setupAirfoil() {
     airfoilLowerProfile = [];
   
     var at = 0.18; // 18% thickness
-    var m = 0.08; // camber
-    var p = 0.4;  // point of max camber
+    var m = 0.0; // camber
+    var p = 0.0;  // point of max camber
   
     for (var i = 0; i < airfoilSteps; i++) {
       var ax = i / (airfoilSteps - 1);
@@ -255,7 +255,7 @@ function draw() {
   for (var i = 0; i < f.numX; i++) {
     for (var j = 0; j < f.numY; j++) {
       if (f.s[i * n + j] == 0) {
-        color[0] = f.s[i * n + j] * 255;
+        color[0] = 80 ;
         color[1] = color[0];
         color[2] = color[0];
       } else if (scene.showPressure) {
