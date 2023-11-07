@@ -13,9 +13,12 @@ canvas.focus();
 
 var f;
 
-var simHeight = 1.1;
+var simHeight = 1.2;
 var cScale = canvas.height / simHeight;
 var simWidth = canvas.width / cScale;
+
+var hoverX = 0;
+var hoverY = 0;
 
 var airfoilAngle = 0;
 var airfoilSteps = 100;
@@ -37,48 +40,45 @@ function cY(y) {
   return canvas.height - y * cScale;
 }
 
-
 function setupAirfoil() {
-    airfoilUpperProfile = [];
-    airfoilLowerProfile = [];
-  
-    var at = 0.18; // 18% thickness
-    var m = 0.0; // camber
-    var p = 0.0;  // point of max camber
-  
-    for (var i = 0; i < airfoilSteps; i++) {
-      var ax = i / (airfoilSteps - 1);
+  airfoilUpperProfile = [];
+  airfoilLowerProfile = [];
 
-      var yc;
-      if (ax <= p) {
-        yc = (m / (p*p)) * (2 * p * ax - ax*ax);
-      } else {
-        yc = (m / Math.pow(1 - p,2)) * ((1 - 2*p) + 2*p*ax - ax*ax);
-      }
+  var at = 0.18; // 18% thickness
+  var m = 0.0; // camber
+  var p = 0.0; // point of max camber
 
-      var yt =
-        5 *
-        at *
-        (0.2969 * Math.sqrt(ax) -
-          0.126 * ax -
-          0.3516 * Math.pow(ax, 2) +
-          0.2843 * Math.pow(ax, 3) -
-          0.1015 * Math.pow(ax, 4));
-      
-      var theta = Math.atan2(yc, ax);
+  for (var i = 0; i < airfoilSteps; i++) {
+    var ax = i / (airfoilSteps - 1);
 
-      var xu = ax - yt * Math.sin(theta);
-      var yu = yc + yt * Math.cos(theta);
-
-      var xl = ax + yt * Math.sin(theta);
-      var yl = yc - yt * Math.cos(theta);
-
-      airfoilUpperProfile.push(new Vector(xu,yu));
-      airfoilLowerProfile.push(new Vector(xl,yl));
+    var yc;
+    if (ax <= p) {
+      yc = (m / (p * p)) * (2 * p * ax - ax * ax);
+    } else {
+      yc = (m / Math.pow(1 - p, 2)) * (1 - 2 * p + 2 * p * ax - ax * ax);
     }
+
+    var yt =
+      5 *
+      at *
+      (0.2969 * Math.sqrt(ax) -
+        0.126 * ax -
+        0.3516 * Math.pow(ax, 2) +
+        0.2843 * Math.pow(ax, 3) -
+        0.1015 * Math.pow(ax, 4));
+
+    var theta = Math.atan2(yc, ax);
+
+    var xu = ax - yt * Math.sin(theta);
+    var yu = yc + yt * Math.cos(theta);
+
+    var xl = ax + yt * Math.sin(theta);
+    var yl = yc - yt * Math.cos(theta);
+
+    airfoilUpperProfile.push(new Vector(xu, yu));
+    airfoilLowerProfile.push(new Vector(xl, yl));
   }
-
-
+}
 
 // ----------------- start of simulator ------------------------------
 
@@ -125,6 +125,9 @@ function setupScene(sceneNr = 0) {
   var numX = Math.floor(domainWidth / h);
   var numY = Math.floor(domainHeight / h);
 
+  console.log('numX', numX);
+  console.log('numY', numY);
+
   var density = 5000.0;
 
   f = scene.fluid = new Fluid(density, numX, numY, h);
@@ -143,9 +146,12 @@ function setupScene(sceneNr = 0) {
         var s = 1.0; // fluid
         if (i == 0 || j == 0 || j == f.numY - 1) s = 0.0; // solid
         f.s[i * n + j] = s;
+        f.cellBounds[i * n + j].ua = s;
+        f.cellBounds[i * n + j].va = s;
 
         if (i == 1) {
           f.u[i * n + j] = inVel;
+          f.cellBounds[i * n + j].ua = 0;
         }
       }
     }
@@ -158,7 +164,7 @@ function setupScene(sceneNr = 0) {
 
     setObstacle(0.401, 0.501, true);
 
-    scene.overRelaxation = 1.99;
+    scene.overRelaxation = 1.9;
 
     scene.gravity = 0;
     scene.showPressure = true;
@@ -179,6 +185,7 @@ function setupScene(sceneNr = 0) {
   document.getElementById("smokeButton").checked = scene.showSmoke;
   document.getElementById("overrelaxButton").checked =
     scene.overRelaxation > 1.0;
+  document.getElementById("airfoilBoundaryButton").checked = scene.showObstacle;
 }
 
 // draw -------------------------------------------------------
@@ -234,19 +241,27 @@ function draw() {
 
   c.fillStyle = "#FF0000";
   f = scene.fluid;
-  n = f.numY;
-
-  var cellScale = 1.1;
+  var n = f.numY;
+  var cellScale = 1;
 
   var h = f.h;
 
   var minP = f.p[0];
   var maxP = f.p[0];
 
+  var minQ = f.incompressibility[0];
+  var maxQ = f.incompressibility[0];
+
   for (var i = 0; i < f.numCells; i++) {
     minP = Math.min(minP, f.p[i]);
     maxP = Math.max(maxP, f.p[i]);
+
+    minQ = Math.min(minQ, f.incompressibility[i]);
+    maxQ = Math.max(maxQ, f.incompressibility[i]);
   }
+
+  //minQ = -2;
+  //maxQ = 2;
 
   var id = c.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -255,27 +270,33 @@ function draw() {
   for (var i = 0; i < f.numX; i++) {
     for (var j = 0; j < f.numY; j++) {
       if (f.s[i * n + j] == 0) {
-        color[0] = 80 ;
+        color[0] = 80;
         color[1] = color[0];
         color[2] = color[0];
       } else if (scene.showPressure) {
         var p = f.p[i * n + j];
         var s = f.m[i * n + j];
         color = getSciColor(p, minP, maxP);
-        color[0] *= f.s[i * n + j];
-        color[1] *= f.s[i * n + j];
-        color[2] *= f.s[i * n + j];
+        //color[0] *= f.s[i * n + j];
+        //color[1] *= f.s[i * n + j];
+        //color[2] *= f.s[i * n + j];
         if (scene.showSmoke) {
           color[0] = Math.max(0.0, color[0] - 255 * s);
           color[1] = Math.max(0.0, color[1] - 255 * s);
           color[2] = Math.max(0.0, color[2] - 255 * s);
         }
-      } else if (scene.showSmoke) {
+      } else {
         var s = f.m[i * n + j];
-        color[0] = 255 * s;
-        color[1] = 255 * s;
-        color[2] = 255 * s;
-        if (scene.sceneNr == 2) color = getSciColor(s, 0.0, 1.0);
+        var q = f.incompressibility[i * n + j];
+        color = getSciColor(q, minQ, maxQ);
+        //color[0] *= f.s[i * n + j];
+        //color[1] *= f.s[i * n + j];
+        //color[2] *= f.s[i * n + j];
+        if (scene.showSmoke) {
+          color[0] = Math.max(0.0, color[0] - 255 * s);
+          color[1] = Math.max(0.0, color[1] - 255 * s);
+          color[2] = Math.max(0.0, color[2] - 255 * s);
+        }
       }
 
       var x = Math.floor(cX(i * h));
@@ -302,39 +323,71 @@ function draw() {
 
   c.putImageData(id, 0, 0);
 
+  
+  // show grid and ua / va boundaries
+  c.lineWidth = 1.0;
+
+  for (var i = 0; i < f.numX; i++) {
+    for (var j = 0; j < f.numY; j++) {
+      var ci = i * n + j;
+      var bb = f.cellBounds[ci];
+
+      // left boundary
+    c.strokeStyle = (hoverX == i && hoverY == j) ? '#0f0' : (bb.ua < 1 ? "#f00" : '#aaa');
+    // draw intersection volume
+    c.beginPath();
+    c.moveTo(cX(bb.bottomLeft.x), cY(bb.bottomLeft.y));
+    c.lineTo(cX(bb.topLeft.x), cY(bb.topLeft.y));
+    c.stroke();
+    
+
+    // bottom boundary
+    c.strokeStyle = (hoverX == i && hoverY == j) ? '#0f0' : (bb.va < 1 ? "#f00" : '#aaa');
+    // draw intersection volume
+    c.beginPath();
+    c.moveTo(cX(bb.bottomLeft.x), cY(bb.bottomLeft.y));
+    c.lineTo(cX(bb.bottomRight.x), cY(bb.bottomRight.y));
+    c.stroke();
+  
+      
+    }
+  }
+
+  c.lineWidth = 1.0;
+  
+
   if (scene.showVelocities) {
-    c.strokeStyle = "#fff";
+    c.strokeStyle = "#000";
     var scale = 0.02;
 
     for (var i = 0; i < f.numX; i++) {
       for (var j = 0; j < f.numY; j++) {
         var u = f.u[i * n + j];
         var v = f.v[i * n + j];
+        //var u = f.cellBounds[i * n + j].ua;
+        //var v = f.cellBounds[i * n + j].va;
 
         var ci = i * n + j;
         var bb = f.cellBounds[ci];
 
         c.beginPath();
-
-        //var x0 = cX(i * h);
-        //var x1 = cX(i * h + u * scale);
-        //var y = cY((j + 0.5) * h);
         var x0 = cX(bb.up.x);
         var x1 = cX(bb.up.x + u * scale);
         var y = cY(bb.up.y);
 
         c.moveTo(x0, y);
         c.lineTo(x1, y);
-        c.stroke();
 
-        //var x = cX((i + 0.5) * h);
-        //var y0 = cY(j * h);
-        //var y1 = cY(j * h + v * scale);
+        // now show advect Point
+        if (bb.uvx > 0) {
+          c.moveTo(x0, y);
+          c.lineTo(cX(bb.uvx), cY(bb.uvy));
+        }
+
         var x = cX(bb.vp.x);
         var y0 = cY(bb.vp.y);
         var y1 = cY(bb.vp.y + v * scale);
 
-        c.beginPath();
         c.moveTo(x, y0);
         c.lineTo(x, y1);
         c.stroke();
@@ -344,28 +397,38 @@ function draw() {
 
   if (scene.showStreamlines) {
     var segLen = f.h * 0.2;
-    var numSegs = 10;
-    var stepSize = 10;
+    var xStepSize = Math.floor(f.numX / 15);
+    var yStepSize = Math.floor(f.numY / 20);
+    var numSegs = Math.floor(xStepSize * 5);
 
-    c.strokeStyle = "#000000";
-
-    for (var i = 1; i < f.numX - 1; i += stepSize) {
-      for (var j = 1; j < f.numY - 1; j += stepSize) {
+    for (var i = 1; i < f.numX - 1; i += xStepSize) {
+      for (var j = 1; j < f.numY - 1; j += yStepSize) {
         var x = (i + 0.5) * f.h;
         var y = (j + 0.5) * f.h;
 
+        c.strokeStyle = "#000000";
+        c.lineWidth = 1.0;
         c.beginPath();
         c.moveTo(cX(x), cY(y));
 
-        for (var n = 0; n < numSegs; n++) {
+        for (var k = 0; k < numSegs; k++) {
           var u = f.sampleField(x, y, f.U_FIELD);
           var v = f.sampleField(x, y, f.V_FIELD);
           var l = Math.sqrt(u * u + v * v);
-          // x += u/l * segLen;
-          // y += v/l * segLen;
-          x += u * 0.01;
-          y += v * 0.01;
-          if (x > f.numX * f.h) break;
+          x += (u / l) * segLen;
+          y += (v / l) * segLen;
+
+          // check if outside bounds
+          if (x < 0 || x > f.numX * f.h || y < 0 || y > f.numY * f.h) break;
+
+          // check if we're inside a solid region
+          if (
+            obstacle.bb.containsCoords(x, y) &&
+            obstacle.contains(new Vector(x, y))
+          ) {
+            c.strokeStyle = "#f00";
+            break;
+          }
 
           c.lineTo(cX(x), cY(y));
         }
@@ -374,7 +437,8 @@ function draw() {
     }
   }
 
-  if (scene.showObstacle || true) {
+  // airfoil profile
+  if (scene.showObstacle && false) {
     c.lineWidth = 1.0;
     c.strokeStyle = "#fff";
     c.beginPath();
@@ -388,64 +452,70 @@ function draw() {
   }
 
   if (scene.showPressure) {
-    var s = "pressure: " + minP.toFixed(0) + " - " + maxP.toFixed(0) + " N/m";
+    var s = "pressure: " + minP.toFixed(0) + " ... " + maxP.toFixed(0) + " N/m";
     c.fillStyle = "#000000";
     c.font = "16px Arial";
     c.fillText(s, 10, 35);
   }
 
+  var s = "incompressibility: " + minQ.toFixed(2) + " ... " + maxQ.toFixed(2);
+  c.fillStyle = "#000000";
+  c.font = "16px Arial";
+  c.fillText(s, 300, 35);
+
+  // draw colour scale
+
   // draw cell bounds
-  if (true) {
+  if (scene.showObstacle) {
     c.lineWidth = 1.0;
 
     for (var i = 0; i < f.numX; i++) {
-        for (var j = 0; j < f.numY; j++) {
+      for (var j = 0; j < f.numY; j++) {
         var ci = i * n + j;
         var bb = f.cellBounds[ci];
-        if (f.s[ci] < 1 && bb.points && bb.points.length>0) {
-            c.strokeStyle = "#aaa";
-            // draw intersection volume
-            c.beginPath();
-            c.moveTo(cX(bb.points[0].x), cY(bb.points[0].y));
-            for (var k=1; k<bb.points.length; k++) {
-                c.lineTo(cX(bb.points[k].x), cY(bb.points[k].y));
-            }
-            c.closePath();
-            c.stroke();
+        if (f.s[ci] < 1 && bb.points && bb.points.length > 0) {
+          c.strokeStyle = "#fff";
+          // draw intersection volume
+          c.beginPath();
+          c.moveTo(cX(bb.points[0].x), cY(bb.points[0].y));
+          for (var k = 1; k < bb.points.length; k++) {
+            c.lineTo(cX(bb.points[k].x), cY(bb.points[k].y));
+          }
+          c.closePath();
+          c.stroke();
         }
 
         // see if we have any intersections to draw
         if (bb.li) {
-            c.fillStyle = '#f00';
-            c.beginPath();
-            c.arc(cX(bb.li.x), cY(bb.li.y),3,0,2*Math.PI);
-            c.fill();
+          c.fillStyle = "#f00";
+          c.beginPath();
+          c.arc(cX(bb.li.x), cY(bb.li.y), 3, 0, 2 * Math.PI);
+          c.fill();
         }
 
         if (bb.ti) {
-            c.fillStyle = '#f00';
-            c.beginPath();
-            c.arc(cX(bb.ti.x), cY(bb.ti.y),3,0,2*Math.PI);
-            c.fill();
+          c.fillStyle = "#f00";
+          c.beginPath();
+          c.arc(cX(bb.ti.x), cY(bb.ti.y), 3, 0, 2 * Math.PI);
+          c.fill();
         }
 
         if (bb.ri) {
-            c.fillStyle = '#00f';
-            c.beginPath();
-            c.arc(cX(bb.ri.x), cY(bb.ri.y),2,0,2*Math.PI);
-            c.fill();
+          c.fillStyle = "#00f";
+          c.beginPath();
+          c.arc(cX(bb.ri.x), cY(bb.ri.y), 2, 0, 2 * Math.PI);
+          c.fill();
         }
 
         if (bb.bi) {
-            c.fillStyle = '#00f';
-            c.beginPath();
-            c.arc(cX(bb.bi.x), cY(bb.bi.y),2,0,2*Math.PI);
-            c.fill();
+          c.fillStyle = "#00f";
+          c.beginPath();
+          c.arc(cX(bb.bi.x), cY(bb.bi.y), 2, 0, 2 * Math.PI);
+          c.fill();
         }
-        }
+      }
     }
 
-    c.stroke();
     c.lineWidth = 1.0;
   }
 
@@ -589,23 +659,41 @@ function startDrag(x, y) {
   x = mx / cScale;
   y = (canvas.height - my) / cScale;
 
+  
+  hoverX = Math.floor(x / f.h);
+  hoverY = Math.floor(y / f.h);
+
+  // DIAGNOSTICS
+  if (hoverX >= 0 && hoverX < f.numX && hoverY >=0 && hoverY < f.numY) {
+    var ci = hoverX * f.numY + hoverY;
+    console.log('cellBounds',f.cellBounds[ci]);
+    console.log('cellBounds right',f.cellBounds[(hoverX+1) * f.numY + hoverY]);
+    console.log('cellBounds above',f.cellBounds[hoverX * f.numY + hoverY+1]);
+    console.log('u',f.u[ci]);
+    console.log('v',f.v[ci]);
+    console.log('u+1',f.u[(hoverX+1) * f.numY + hoverY]);
+    console.log('v+1',f.v[hoverX * f.numY + hoverY+1]);
+    console.log('incompressibility',f.incompressibility[ci]);
+  }
+
   //setObstacle(x,y, true);
 }
 
 function drag(x, y) {
+  let bounds = canvas.getBoundingClientRect();
+  let mx = x - bounds.left - canvas.clientLeft;
+  let my = y - bounds.top - canvas.clientTop;
+  x = mx / cScale;
+  y = (canvas.height - my) / cScale;
+  
   if (mouseDown) {
-    let bounds = canvas.getBoundingClientRect();
-    let mx = x - bounds.left - canvas.clientLeft;
-    let my = y - bounds.top - canvas.clientTop;
-    x = mx / cScale;
-    y = (canvas.height - my) / cScale;
     //setObstacle(x,y, false);
 
     var dy = y - 0.5;
     airfoilAngle = 60 * dy;
 
     setObstacle(0.401, 0.501, true);
-  }
+  } 
 }
 
 function endDrag() {
@@ -693,9 +781,13 @@ function init() {
     setupScene(3);
   });
 
-  $('#velocityButton').on('click', ()=>{
+  $("#velocityButton").on("click", () => {
     scene.showVelocities = !scene.showVelocities;
-  })
+  });
+
+  $("#pressureButton").on("click", () => {
+    scene.showPressure = !scene.showPressure;
+  });
 
   $("#smokeButton").on("click", () => {
     scene.showSmoke = !scene.showSmoke;
@@ -705,8 +797,12 @@ function init() {
     scene.showStreamlines = !scene.showStreamlines;
   });
 
-  $('#overrelaxButton').on('click', ()=>{
-    scene.overRelaxation = scene.overRelaxation == 1.0 ? 1.9 : 1.0
+  $("#overrelaxButton").on("click", () => {
+    scene.overRelaxation = scene.overRelaxation == 1.0 ? 1.9 : 1.0;
+  });
+
+  $("#airfoilBoundaryButton").on("click", () => {
+    scene.showObstacle = !scene.showObstacle;
   });
 
   setupAirfoil();

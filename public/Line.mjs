@@ -25,6 +25,7 @@ export default class Line {
         var det, gamma, lambda;
         det = (c - a) * (s - q) - (r - p) * (d - b);
         if (det === 0) {
+            // parallel or coincident, can't calculate intersection
             
         } else {
             lambda = ((s - q) * (r - a) + (p - r) * (s - b)) / det;

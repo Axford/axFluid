@@ -44,6 +44,8 @@ export default class BoundingBox {
         this.top = new Line(this.topLeft, this.topRight);
         this.right = new Line(this.topRight, this.bottomRight);
         this.bottom = new Line(this.bottomRight, this.bottomLeft);
+
+        this.finalised = true;
     }
 
     containsPoint(p) {
