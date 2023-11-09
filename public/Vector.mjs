@@ -119,6 +119,13 @@ export default class Vector {
     this.y = x * sn + y * cs;
     return this;
   }
+  rotate90() {
+	// rotate 90
+	var x1 = -this.y;
+	this.y = this.x;
+	this.x = x1;
+	return this;
+  }
 	clone() {
 		return new Vector(this.x, this.y);
 	}

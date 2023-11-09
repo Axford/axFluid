@@ -44,8 +44,11 @@ export default class Fluid {
         bb.va = 1; // v (bottom) boundary free area
         bb.uvx = 0;
         bb.uvy = 0;
+        bb.vvx = 0;
+        bb.vvy = 0;
         bb.yGradient = 0;
         bb.xGradient = 0;
+        bb.hEquiv = h;
       }
     }
 
@@ -94,6 +97,7 @@ export default class Fluid {
         cbb.ua = 1;
         cbb.vp.x = cbb.bottomLeft.x + this.h / 2;
         cbb.up.y = cbb.bottomLeft.y + this.h / 2;
+        cbb.hEquiv = this.h;
         cbb.points = [];
 
         // update boundaries for cells with solid neighbours
@@ -178,30 +182,32 @@ export default class Fluid {
               }
 
               // test bottom edge
-              if (cbb.brc && cbb.blc) {
-                // totally enclosed bottom edge, no need to test for intersections
-                cbb.va = 0;
-              } else {
-                var ia = obstacle.intersectsEdge(cbb.bottom);
-                if (ia.length > 1) {
-                  cbb.bi = null;
-                  // bad - invalid number of intersections
-                } else if (ia.length == 1) {
-                  cbb.bi = ia[0];
-                  points.push(new Vector(ia[0].x, ia[0].y));
-                  // re-calculate position of vp vector
-                  if (cbb.blc) {
-                    // open area is between intersection and bottomRight
-                    cbb.vp.x = (cbb.bi.x + cbb.bottomRight.x) / 2;
-                    cbb.va = (cbb.bottomRight.x - cbb.bi.x) / this.h;
-                  } else {
-                    // open area if between bottom left and intersection
-                    cbb.vp.x = (cbb.bi.x + cbb.bottomLeft.x) / 2;
-                    cbb.va = (cbb.bi.x - cbb.bottomLeft.x) / this.h;
-                  }
-                  cbb.vo = (cbb.vp.x - cbb.bottomLeft.x) / this.h;
+              if (cbb.va > 0) {
+                if (cbb.brc && cbb.blc) {
+                  // totally enclosed bottom edge, no need to test for intersections
+                  cbb.va = 0;
                 } else {
-                  cbb.bi = null;
+                  var ia = obstacle.intersectsEdge(cbb.bottom);
+                  if (ia.length > 1) {
+                    cbb.bi = null;
+                    // bad - invalid number of intersections
+                  } else if (ia.length == 1) {
+                    cbb.bi = ia[0];
+                    points.push(new Vector(ia[0].x, ia[0].y));
+                    // re-calculate position of vp vector
+                    if (cbb.blc) {
+                      // open area is between intersection and bottomRight
+                      cbb.vp.x = (cbb.bi.x + cbb.bottomRight.x) / 2;
+                      cbb.va = (cbb.bottomRight.x - cbb.bi.x) / this.h;
+                    } else {
+                      // open area if between bottom left and intersection
+                      cbb.vp.x = (cbb.bi.x + cbb.bottomLeft.x) / 2;
+                      cbb.va = (cbb.bi.x - cbb.bottomLeft.x) / this.h;
+                    }
+                    cbb.vo = (cbb.vp.x - cbb.bottomLeft.x) / this.h;
+                  } else {
+                    cbb.bi = null;
+                  }
                 }
               }
 
@@ -237,18 +243,23 @@ export default class Fluid {
                 }
               }
 
-              // calc area of points
+              // calc area of points, and length of perimeter
               var area = 0;
+              var perim = this.h*4;
               if (points.length > 2) {
                 for (var k = 0; k < points.length - 1; k++) {
                   area +=
                     points[k].x * points[k + 1].y -
                     points[k + 1].x * points[k].y;
+                  var v = points[k+1].clone().subtract(points[k]);
+                  perim += v.length();
                 }
                 // add additional area for last point back to first
                 area +=
                   points[points.length - 1].x * points[0].y -
                   points[0].x * points[points.length - 1].y;
+                var v = points[0].clone().subtract(points[points.length-1]);
+                perim += v.length();
               }
               area = 0.5 * Math.abs(area);
 
@@ -260,6 +271,10 @@ export default class Fluid {
               if (s > 1) s = 1;
               if (s < 0) s = 0;
               this.s[ci] = s;
+
+              //cbb.hEquiv = perim/4;
+              cbb.hEquiv = Math.sqrt(s * this.h*this.h) ;
+              //cbb.hEquiv = s * this.h * this.h;
             }
           }
 
@@ -272,61 +287,60 @@ export default class Fluid {
 
     // post calculate the relative positions of u and v components to account for non-square cells
     for (var i = 1; i < this.numX - 2; i++) {
-        for (var j = 1; j < this.numY - 2; j++) {
-          var ci = i * this.numY + j;
-          var cbb = this.cellBounds[ci];
-          var rbb = this.cellBounds[(i+1)*this.numY + j]; // right cell
-          var abb = this.cellBounds[i*this.numY + j + 1]; // above cell
+      for (var j = 1; j < this.numY - 2; j++) {
+        var ci = i * this.numY + j;
+        var cbb = this.cellBounds[ci];
+        var rbb = this.cellBounds[(i + 1) * this.numY + j]; // right cell
+        var abb = this.cellBounds[i * this.numY + j + 1]; // above cell
 
-          if (this.s[ci] > 0 && this.s[ci] < 1) {
-            // partial occlusion
+        if (this.s[ci] > 0 && this.s[ci] < 1) {
+          // partial occlusion
 
-            if (cbb.ua > 0) {
-                // compute yGradient for up
-                var v0 = cbb.up.clone();
-                var v1 = new Vector(0,0);
-                if (rbb.ua > 0) {
-                    // y delta between this u and right cell u, divided by cell width
-                    v1.set(rbb.up);
-                } else if (cbb.va > 0) {
-                    // gradient is toward the bottom opening of the cell
-                    v1.set(cbb.vp);
-                } else {
-                    // gradient is toward the top opening of the cell
-                    v1.set(abb.vp);
-                }
-
-                // calc vector from v0 to v1 
-                v1.subtract(v0);
-                v1.divide(this.h);
-
-                cbb.yGradient = v1.y;
+          if (cbb.ua > 0) {
+            // compute yGradient for up
+            var v0 = cbb.up.clone();
+            var v1 = new Vector(0, 0);
+            if (rbb.ua > 0) {
+              // y delta between this u and right cell u, divided by cell width
+              v1.set(rbb.up);
+            } else if (cbb.va > 0) {
+              // gradient is toward the bottom opening of the cell
+              v1.set(cbb.vp);
+            } else {
+              // gradient is toward the top opening of the cell
+              v1.set(abb.vp);
             }
 
-            if (cbb.va > 0) {
-                // compute xGradient for vp
-                var v0 = cbb.vp.clone();
-                var v1 = new Vector(0,0);
-                if (abb.va > 0) {
-                    // gradient is toward top opening of the cell
-                    v1.set(abb.vp);
-                } else if (cbb.ua > 0) {
-                    // gradient is toward the left opening of the cell
-                    v1.set(cbb.up);
-                } else {
-                    // gradient is toward the right opening of the cell
-                    v1.set(rbb.up);
-                }
+            // calc vector from v0 to v1
+            v1.subtract(v0);
+            v1.divide(this.h);
 
-                // calc vector from v0 to v1 
-                v1.subtract(v0);
-                v1.divide(this.h);
+            cbb.yGradient = v1.y;
+          }
 
-                cbb.xGradient = v1.x;
+          if (cbb.va > 0) {
+            // compute xGradient for vp
+            var v0 = cbb.vp.clone();
+            var v1 = new Vector(0, 0);
+            if (abb.va > 0) {
+              // gradient is toward top opening of the cell
+              v1.set(abb.vp);
+            } else if (cbb.ua > 0) {
+              // gradient is toward the left opening of the cell
+              v1.set(cbb.up);
+            } else {
+              // gradient is toward the right opening of the cell
+              v1.set(rbb.up);
             }
 
+            // calc vector from v0 to v1
+            v1.subtract(v0);
+            v1.divide(this.h);
+
+            cbb.xGradient = v1.x;
           }
         }
+      }
     }
   }
 
@@ -342,7 +356,8 @@ export default class Fluid {
 
   solveIncompressibility(numIters, dt) {
     var n = this.numY;
-    var cp = (this.density * this.h) / dt;
+    //var cp = (this.density * this.h) / dt;
+    var cp = this.density / dt;
 
     for (var iter = 0; iter < numIters; iter++) {
       // tween relaxation toward 1
@@ -386,7 +401,7 @@ export default class Fluid {
             continue;
           }
 
-          // imbalance in velocity flow
+          // total divergence (outflow)
           var div =
             this.u[(i + 1) * n + j] - // right boundary
             this.u[i * n + j] + // left boundary
@@ -395,7 +410,8 @@ export default class Fluid {
 
           var p = -div / s;
           p *= relax;
-          this.p[i * n + j] += cp * p;
+          // hEquiv is equiv to h
+          this.p[i * n + j] += cp * p * this.cellBounds[i * n + j].hEquiv;
 
           // adjust velocity vectors to rebalance in vs out flow
           this.u[i * n + j] -= sx0 * p;
@@ -528,7 +544,7 @@ export default class Fluid {
           x = x - dt * u;
           y = y - dt * v;
           // additional displace y by yGradient, scaled on dt*u
-          y = y - (dt * u) * cbb.yGradient;
+          y = y - dt * u * cbb.yGradient;
 
           cbb.uvx = x;
           cbb.uvy = y;
@@ -547,6 +563,13 @@ export default class Fluid {
           var v = this.v[i * n + j];
           x = x - dt * u;
           y = y - dt * v;
+
+          // additional displace x by xGradient, scaled on dt*u
+          x = x - dt * u * cbb.xGradient;
+
+          cbb.vvx = x;
+          cbb.vvy = y;
+
           v = this.sampleField(x, y, this.V_FIELD);
           this.newV[i * n + j] = v;
         }

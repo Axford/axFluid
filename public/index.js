@@ -11,6 +11,8 @@ canvas.height = window.innerHeight - 100;
 
 canvas.focus();
 
+var gui;
+
 var f;
 
 var simHeight = 1.2;
@@ -20,8 +22,7 @@ var simWidth = canvas.width / cScale;
 var hoverX = 0;
 var hoverY = 0;
 
-var airfoilAngle = 0;
-var airfoilSteps = 100;
+var airfoilSteps = 200;
 var airfoilUpperProfile = [];
 var airfoilLowerProfile = [];
 
@@ -44,9 +45,9 @@ function setupAirfoil() {
   airfoilUpperProfile = [];
   airfoilLowerProfile = [];
 
-  var at = 0.18; // 18% thickness
-  var m = 0.0; // camber
-  var p = 0.0; // point of max camber
+  var at = 0.15; // 18% thickness
+  var m = 0.04; // camber
+  var p = 0.4; // point of max camber
 
   for (var i = 0; i < airfoilSteps; i++) {
     var ax = i / (airfoilSteps - 1);
@@ -93,12 +94,15 @@ var scene = {
   obstacleRadius: 0.15,
   paused: false,
   sceneNr: 0,
-  showObstacle: false,
+  showAirfoilBoundary: false,
   showStreamlines: false,
   showVelocities: true,
   showPressure: false,
   showSmoke: true,
+  showPressureDistribution:true,
+  showCells:true,
   fluid: null,
+  airfoilAngle: 0
 };
 
 function setupScene(sceneNr = 0) {
@@ -116,7 +120,8 @@ function setupScene(sceneNr = 0) {
 
   if (sceneNr == 0) res = 50;
   else if (sceneNr == 1) res = 20;
-  else if (sceneNr == 3) res = 200;
+  else if (sceneNr == 1) res = 200;
+  else if (sceneNr == 3) res = 400;
 
   var domainHeight = 1.0;
   var domainWidth = (domainHeight / simHeight) * simWidth;
@@ -135,7 +140,7 @@ function setupScene(sceneNr = 0) {
 
   var n = f.numY;
 
-  if (sceneNr == 1 || sceneNr == 3) {
+  if (sceneNr >=1 && sceneNr <= 3) {
     // vortex shedding
     // wind tunnels
 
@@ -156,11 +161,16 @@ function setupScene(sceneNr = 0) {
       }
     }
 
+    // smoke injection
     var pipeH = 0.3 * f.numY;
     var minJ = Math.floor(0.5 * f.numY - 0.5 * pipeH);
     var maxJ = Math.floor(0.5 * f.numY + 0.5 * pipeH);
 
-    for (var j = minJ; j < maxJ; j++) f.m[j] = 0.0;
+    //for (var j = minJ; j < maxJ; j++) f.m[j] = 0.0;
+
+    for (var j = 0; j < f.numY; j++) {
+      if (j % 20 < 4) f.m[j] = 0;
+    }
 
     setObstacle(0.401, 0.501, true);
 
@@ -172,20 +182,13 @@ function setupScene(sceneNr = 0) {
     scene.showStreamlines = false;
     scene.showVelocities = true;
 
-    if (sceneNr == 3) {
+    if (sceneNr > 1 ) {
       scene.dt = 1.0 / 120.0;
       scene.numIters = 100;
       scene.showPressure = true;
+      scene.showVelocities = false;
     }
   }
-
-  document.getElementById("streamButton").checked = scene.showStreamlines;
-  document.getElementById("velocityButton").checked = scene.showVelocities;
-  document.getElementById("pressureButton").checked = scene.showPressure;
-  document.getElementById("smokeButton").checked = scene.showSmoke;
-  document.getElementById("overrelaxButton").checked =
-    scene.overRelaxation > 1.0;
-  document.getElementById("airfoilBoundaryButton").checked = scene.showObstacle;
 }
 
 // draw -------------------------------------------------------
@@ -325,39 +328,40 @@ function draw() {
 
   
   // show grid and ua / va boundaries
-  c.lineWidth = 1.0;
+  if (scene.showCells) {
+    c.lineWidth = 1.0;
 
-  for (var i = 0; i < f.numX; i++) {
-    for (var j = 0; j < f.numY; j++) {
-      var ci = i * n + j;
-      var bb = f.cellBounds[ci];
+    for (var i = 0; i < f.numX; i++) {
+      for (var j = 0; j < f.numY; j++) {
+        var ci = i * n + j;
+        var bb = f.cellBounds[ci];
 
-      // left boundary
-    c.strokeStyle = (hoverX == i && hoverY == j) ? '#0f0' : (bb.ua < 1 ? "#f00" : '#aaa');
-    // draw intersection volume
-    c.beginPath();
-    c.moveTo(cX(bb.bottomLeft.x), cY(bb.bottomLeft.y));
-    c.lineTo(cX(bb.topLeft.x), cY(bb.topLeft.y));
-    c.stroke();
-    
-
-    // bottom boundary
-    c.strokeStyle = (hoverX == i && hoverY == j) ? '#0f0' : (bb.va < 1 ? "#f00" : '#aaa');
-    // draw intersection volume
-    c.beginPath();
-    c.moveTo(cX(bb.bottomLeft.x), cY(bb.bottomLeft.y));
-    c.lineTo(cX(bb.bottomRight.x), cY(bb.bottomRight.y));
-    c.stroke();
-  
+        // left boundary
+      c.strokeStyle = (hoverX == i && hoverY == j) ? '#0f0' : (bb.ua < 1 ? "#f00" : '#aaa');
+      // draw intersection volume
+      c.beginPath();
+      c.moveTo(cX(bb.bottomLeft.x), cY(bb.bottomLeft.y));
+      c.lineTo(cX(bb.topLeft.x), cY(bb.topLeft.y));
+      c.stroke();
       
-    }
-  }
 
-  c.lineWidth = 1.0;
+      // bottom boundary
+      c.strokeStyle = (hoverX == i && hoverY == j) ? '#0f0' : (bb.va < 1 ? "#f00" : '#aaa');
+      // draw intersection volume
+      c.beginPath();
+      c.moveTo(cX(bb.bottomLeft.x), cY(bb.bottomLeft.y));
+      c.lineTo(cX(bb.bottomRight.x), cY(bb.bottomRight.y));
+      c.stroke();
+    
+        
+      }
+    }
+
+    c.lineWidth = 1.0;
+  }
   
 
   if (scene.showVelocities) {
-    c.strokeStyle = "#000";
     var scale = 0.02;
 
     for (var i = 0; i < f.numX; i++) {
@@ -370,6 +374,7 @@ function draw() {
         var ci = i * n + j;
         var bb = f.cellBounds[ci];
 
+        c.strokeStyle = "#000";
         c.beginPath();
         var x0 = cX(bb.up.x);
         var x1 = cX(bb.up.x + u * scale);
@@ -379,30 +384,44 @@ function draw() {
         c.lineTo(x1, y);
 
         // now show advect Point
-        if (bb.uvx > 0) {
+        if (bb.ua > 0 && bb.uvx != 0) {
           c.moveTo(x0, y);
           c.lineTo(cX(bb.uvx), cY(bb.uvy));
         }
+        c.stroke();
 
         var x = cX(bb.vp.x);
         var y0 = cY(bb.vp.y);
         var y1 = cY(bb.vp.y + v * scale);
 
+        c.strokeStyle = "#f00";
+        c.beginPath();
         c.moveTo(x, y0);
         c.lineTo(x, y1);
+
+        // now show advect Point
+        if (bb.va > 0 && bb.vvy != 0) {
+          c.moveTo(x, y0);
+          c.lineTo(cX(bb.vvx), cY(bb.vvy));
+        }
         c.stroke();
+
+        
       }
     }
   }
 
   if (scene.showStreamlines) {
     var segLen = f.h * 0.2;
-    var xStepSize = Math.floor(f.numX / 15);
-    var yStepSize = Math.floor(f.numY / 20);
+    var xStepSize = Math.max(Math.floor(f.numX / 15), 1);
+    var yStepSize = Math.max(Math.floor(f.numY / 30),1);
     var numSegs = Math.floor(xStepSize * 5);
 
-    for (var i = 1; i < f.numX - 1; i += xStepSize) {
-      for (var j = 1; j < f.numY - 1; j += yStepSize) {
+    console.log(xStepSize, yStepSize, numSegs);
+
+    
+    for (var i = 1; i < f.numX - 2; i += xStepSize) {
+      for (var j = 1; j < f.numY - 2; j += yStepSize) {
         var x = (i + 0.5) * f.h;
         var y = (j + 0.5) * f.h;
 
@@ -412,14 +431,16 @@ function draw() {
         c.moveTo(cX(x), cY(y));
 
         for (var k = 0; k < numSegs; k++) {
+          // check if outside bounds
+          if (x < 0 || x > f.numX * f.h || y < 0 || y > f.numY * f.h) break;
+
           var u = f.sampleField(x, y, f.U_FIELD);
           var v = f.sampleField(x, y, f.V_FIELD);
           var l = Math.sqrt(u * u + v * v);
           x += (u / l) * segLen;
           y += (v / l) * segLen;
 
-          // check if outside bounds
-          if (x < 0 || x > f.numX * f.h || y < 0 || y > f.numY * f.h) break;
+
 
           // check if we're inside a solid region
           if (
@@ -433,21 +454,61 @@ function draw() {
           c.lineTo(cX(x), cY(y));
         }
         c.stroke();
+
       }
     }
+    
   }
 
-  // airfoil profile
-  if (scene.showObstacle && false) {
+  // airfoil profile and pressure distribution
+  if (scene.showAirfoilBoundary) {
     c.lineWidth = 1.0;
     c.strokeStyle = "#fff";
-    c.beginPath();
 
+    c.beginPath();
     obstacle.edges.forEach((line) => {
+      // draw airfoil profile
       c.moveTo(cX(line.p0.x), cY(line.p0.y));
-      c.lineTo(cX(line.p1.x), cY(line.p1.y));
+      c.lineTo(cX(line.p1.x), cY(line.p1.y));  
     });
     c.stroke();
+    c.lineWidth = 1.0;
+  }
+
+  if (scene.showPressureDistribution) {
+    c.lineWidth = 1.0;
+
+    obstacle.edges.forEach((line) => {
+      
+      // calc normal vector
+      var v = line.p1.clone();
+      v.subtract(line.p0);
+      // scale it
+      v.normalize();
+      v.rotate90();
+      v.multiply(1.1 * f.h);
+
+      // sample pressure at p0 offset by v
+      var i = Math.floor((line.p0.x+v.x)/f.h);
+      var j = Math.floor((line.p0.y+v.y)/f.h);
+      var p = f.p[i*f.numY + j];
+
+      // scale pressure line based on maxQ
+      var p = 0.3 * (p / maxP);
+      var pSign = p > 0;
+      p = Math.abs(p);
+
+      v.multiply(p/f.h);
+      //if (!pSign) v.negative();
+      
+      //draw it 
+      c.strokeStyle =  pSign ? '#f00' : '#00f';
+      c.beginPath();
+      c.moveTo(cX(line.p0.x), cY(line.p0.y));
+      c.lineTo(cX(line.p0.x + v.x), cY(line.p0.y + v.y));
+      c.stroke();
+      
+    });
     c.lineWidth = 1.0;
   }
 
@@ -466,7 +527,7 @@ function draw() {
   // draw colour scale
 
   // draw cell bounds
-  if (scene.showObstacle) {
+  if (scene.showAirfoilBoundary) {
     c.lineWidth = 1.0;
 
     for (var i = 0; i < f.numX; i++) {
@@ -530,7 +591,7 @@ function draw() {
   c.font = "16px Arial";
   c.fillText("FPS: " + fps.toFixed(2), 20, y + 30);
 
-  c.fillText("Angle: " + airfoilAngle.toFixed(1), 20, y + 60);
+  c.fillText("Angle: " + scene.airfoilAngle.toFixed(1), 20, y + 60);
 }
 
 function setObstacle(x, y, reset) {
@@ -541,7 +602,7 @@ function setObstacle(x, y, reset) {
 
   scene.fluid.updateObstacle(obstacle);
 
-  scene.showObstacle = true;
+  scene.showAirfoilBoundary = true;
 }
 
 function setAirfoilObstacle(x, y, reset) {
@@ -563,7 +624,7 @@ function setAirfoilObstacle(x, y, reset) {
   // set airfoil dimensions
   var ac = 0.6; // chord
 
-  var ang = (airfoilAngle * Math.PI) / 180;
+  var ang = (scene.airfoilAngle * Math.PI) / 180;
   var cs = Math.cos(ang);
   var sn = Math.sin(ang);
 
@@ -689,10 +750,12 @@ function drag(x, y) {
   if (mouseDown) {
     //setObstacle(x,y, false);
 
+    /*
     var dy = y - 0.5;
     airfoilAngle = 60 * dy;
 
     setObstacle(0.401, 0.501, true);
+    */
   } 
 }
 
@@ -772,41 +835,43 @@ function update() {
 }
 
 function init() {
-  // register event handlers
-  $("#windBtn").on("click", () => {
-    setupScene(1);
-  });
-
-  $("#hiresWindBtn").on("click", () => {
-    setupScene(3);
-  });
-
-  $("#velocityButton").on("click", () => {
-    scene.showVelocities = !scene.showVelocities;
-  });
-
-  $("#pressureButton").on("click", () => {
-    scene.showPressure = !scene.showPressure;
-  });
-
-  $("#smokeButton").on("click", () => {
-    scene.showSmoke = !scene.showSmoke;
-  });
-
-  $("#streamButton").on("click", () => {
-    scene.showStreamlines = !scene.showStreamlines;
-  });
-
-  $("#overrelaxButton").on("click", () => {
-    scene.overRelaxation = scene.overRelaxation == 1.0 ? 1.9 : 1.0;
-  });
-
-  $("#airfoilBoundaryButton").on("click", () => {
-    scene.showObstacle = !scene.showObstacle;
-  });
 
   setupAirfoil();
   setupScene(1);
+
+  // setup dat.gui
+  // Creating a GUI with options.
+  gui = new dat.GUI({name: 'GUI'});
+
+  var setupFolder = gui.addFolder('Setup');
+
+  setupFolder.add(scene, 'airfoilAngle', -90, 90, 1).onChange(()=>{
+    setObstacle(0.401, 0.501, true);
+  });
+
+
+  var visFolder = gui.addFolder('Visualisation');
+
+  visFolder.add(scene, 'sceneNr', 1, 3, 1).onFinishChange(()=>{
+    setupScene(scene.sceneNr);
+  });
+
+  visFolder.add(scene, 'showCells');
+
+  visFolder.add(scene, 'showAirfoilBoundary');
+
+  visFolder.add(scene, 'showStreamlines');
+
+  visFolder.add(scene, 'showVelocities');
+
+  visFolder.add(scene, 'showPressure');
+
+  visFolder.add(scene, 'showPressureDistribution');
+
+  visFolder.add(scene, 'showSmoke');
+
+  visFolder.add(scene, 'overRelaxation', 0.5, 1.9, 0.1);
+
   update();
 }
 
