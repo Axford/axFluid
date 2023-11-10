@@ -3,7 +3,7 @@ import BoundingBox from "./BoundingBox.mjs";
 import Vector from "./Vector.mjs";
 
 
-const MAX_LEVELS = 3;
+const MAX_LEVELS = 4;
 
 // maintain only one level difference between adjacent cells
 
@@ -13,6 +13,8 @@ class FluidCell {
     this.parentCell = parentCell;
     this.x = x;
     this.y = y;
+    this.cx = x + h/2;
+    this.cy = y + h/2;
     this.h = h;
     this.u = 0;
     this.v = 0;
@@ -53,12 +55,18 @@ class FluidCell {
     this.updateChildLevel(level);
   }
 
+  reset() {
+    this.cells = null;
+  }
+
   setU(u) {
     //if (this.s == 0) this.u = 0;
+    if (isNaN(u)) return;
     this.u = u;
   }
 
   setV(v) {
+    if (isNaN(v)) return;
     //if (this.s == 0) this.v = 0;
     this.v = v;
   }
@@ -75,7 +83,8 @@ class FluidCell {
         
         c.fillStyle = 'rgb('+color[0]+','+color[1]+','+color[2]+')';
       }
-      c.fillRect(cX(this.bb.bottomLeft.x), cY(this.bb.topLeft.y), cX(this.h), cX(this.h));
+      var w = cX(this.bb.bottomRight.x) - cX(this.bb.bottomLeft.x);
+      c.fillRect(cX(this.bb.bottomLeft.x), cY(this.bb.topLeft.y), w, w);
 
       /*
       c.fillStyle = '#000';
@@ -220,8 +229,8 @@ class FluidCell {
     if (!this.cells) return this;
 
     var h1 = this.h/2;
-    var x0 = Math.max(Math.min(Math.floor((x - this.x) / h1), 1),0);
-    var y0 = Math.max(Math.min(Math.floor((y - this.y) / h1), 1), 0);
+    var x0 = x < this.cx ? 0 : 1;
+    var y0 = y < this.cy ? 0 : 1;
 
     var cell = this.cells[x0 * 2 + y0];
 
@@ -453,43 +462,49 @@ class FluidCell {
       var y = this.up.y;
       var u = this.u; // starting u
       //var v = this.avgV(i, j);
-      var v = this.fluid.sampleField(x,y, this.V_FIELD);
-      x = x - dt * u;
-      y = y - dt * v;
+      var v = this.fluid.sampleField(x,y, this.fluid.V_FIELD);
+      var x1 = x - dt * u;
+      var y1 = y - dt * v;
 
-      if (isNaN(v)) console.error('blergh v',x,y);
+      if (isNaN(v)) {
+        console.error('blergh v',x,y,x1,y1);
+        this.fluid.errorPoints.push(new Vector(x,y));
+      }
       
       try {
-        this.uvx = x;
-        this.uvy = y;
-        u = this.fluid.sampleField(x, y, this.U_FIELD);
+        if (!isNaN(x1)) this.uvx = x1;
+        if (!isNaN(y1)) this.uvy = y1;
+        u = this.fluid.sampleField(x1, y1, this.fluid.U_FIELD);
       } catch(e) {
-        console.error(this,x,y,u,v);
+        console.error(this,x,y,x1,y1,u,v);
       }
       if (isNaN(u)) {
-        console.error(i,j,x,y,u,v);
-      } else this.newU = u;
+        console.error(this,x,y,x1,y1,u,v);
+      } else if (!isNaN(u)) this.newU = u;
     }
 
     // v component... 
     //if (cell.s != 0.0 && cell.below.s != 0 && i < this.numX - 1) {
     if (this.s != 0.0 && this.sy0 != 0 && !this.sink) {
-      var x = this.vp.x
+      var x = this.vp.x;
       var y = this.vp.y;
 
       //var u = this.avgU(i, j);
-      var u = this.fluid.sampleField(x,y, this.U_FIELD);
+      var u = this.fluid.sampleField(x,y, this.fluid.U_FIELD);
       
-      if (isNaN(u)) console.error('blergh u', x,y);
+      if (isNaN(u)) {
+        console.error('blergh u', x,y);
+        this.fluid.errorPoints.push(new Vector(x,y));
+      }
 
       var v = this.v;
-      x = x - dt * u;
-      y = y - dt * v;
+      var x1 = x - dt * u;
+      var y1 = y - dt * v;
 
       try {
-        this.vvx = x;
-        this.vvy = y;      
-        v = this.fluid.sampleField(x, y, this.V_FIELD);
+        if (!isNaN(x1)) this.vvx = x1;
+        if (!isNaN(x1)) this.vvy = y1;
+        v = this.fluid.sampleField(x1, y1, this.fluid.V_FIELD);
       } catch(e) {
         console.error(this,x,y,u,v);
       }
@@ -499,8 +514,8 @@ class FluidCell {
   }
 
   endAdvectVel() {
-    this.u = this.newU;
-    this.v = this.newV;
+    this.setU(this.newU);
+    this.setV(this.newV);
 
     // start children
     if (this.cells) {
@@ -546,6 +561,10 @@ export default class Fluid {
 
     this.scene = null;
 
+    this.updateNeighbours();
+
+    this.errorPoints = [];
+
     // simulation timers
     this.timers = {};
     this.timers.integration = new TimerStats("integration");
@@ -556,6 +575,20 @@ export default class Fluid {
     this.timers.advectVel = new TimerStats("advectVel");
     this.timers.advectSmoke = new TimerStats("advectSmoke");
     this.timers.total = new TimerStats("total");
+  }
+
+  reset() {
+    // reset the quadtree grid
+    for (var i = 0; i < this.numX; i++) {
+      for (var j = 0; j < this.numY; j++) {
+        var ci = i * this.numY + j;
+        var cell = this.cells[ci];
+
+        cell.reset();
+      }
+    }
+
+    this.updateNeighbours();
   }
 
   updateNeighbours() {
@@ -669,21 +702,24 @@ export default class Fluid {
     var h1 = 1.0 / h;
     var h2 = 0.5 * h;
 
-    if (isNaN(x)) console.error('aaargh');
+    if (isNaN(x) || isNaN(y)) {
+      console.error('aaargh');
+      return 0;
+    }
 
     // ensure x and y coords are within bounds
-    x = Math.max(Math.min(x, (this.numX-1) * h), 0);
-    y = Math.max(Math.min(y, (this.numY-1) * h), 0);
+    var x1 = Math.max(Math.min(x, (this.numX-1) * h), 0);
+    var y1 = Math.max(Math.min(y, (this.numY-1) * h), 0);
 
     var cell;
     try {
-      cell = this.getCellAt(x,y);
+      cell = this.getCellAt(x1,y1);
     } catch(e) {
-      console.error(x,y,cell);
+      console.error(x,y,x1,y1,cell);
     }
 
-    var tx = (x - cell.x) / cell.h;
-    var ty = (y - cell.y) / cell.h;
+    var tx = (x1 - cell.x) / cell.h;
+    var ty = (y1 - cell.y) / cell.h;
 
     // get neighbours
     var above = cell.above[0];
@@ -695,13 +731,20 @@ export default class Fluid {
 
     var val = 0;
     
-    if (!cell || !above || !below || !right ) return 0;
+    if (!cell || !above || !below || !right ) {
+      console.error('smeg');
+      return 0;
+    }
 
     val =
         sx * sy * cell[field] +
         tx * sy * right[field] +
         tx * ty * below[field] +
         sx * ty * above[field];
+
+    if (isNaN(val)) {
+      console.error(tx,ty,sx,sy,field, cell[field], above[field], below[field], right[field]);
+    }
 
     return val;
   }
@@ -728,14 +771,10 @@ export default class Fluid {
       }
     }
 
-    var n = this.numY;
-    var h = this.h;
-    var h2 = 0.5 * h;
-
     for (var i = 1; i < this.numX; i++) {
       for (var j = 1; j < this.numY-1; j++) {
         //cnt++;
-        var ci = i * n + j;
+        var ci = i * this.numY + j;
         var cell = this.cells[ci];
         
         cell.advectVel(dt);

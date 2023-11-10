@@ -15,10 +15,6 @@ var gui;
 
 var f;
 
-var simHeight = 1.2;
-var cScale = canvas.height / simHeight;
-var simWidth = canvas.width / cScale;
-
 var airfoilSteps = 200;
 var airfoilUpperProfile = [];
 var airfoilLowerProfile = [];
@@ -30,12 +26,42 @@ var frame = 0;
 var fps = 0;
 var fpsTimer = 0;
 
+
+var scene = {
+  simHeight: 1.2,
+  gravity: 0,
+  dt: 1.0 / 120.0,
+  numIters: 100,
+  frameNr: 0,
+  overRelaxation: 1.9,
+  obstacleX: 0.0,
+  obstacleY: 0.0,
+  obstacleRadius: 0.15,
+  paused: true,
+  sceneNr: 0,
+  showAirfoilBoundary: false,
+  showStreamlines: false,
+  showVelocities: true,
+  showPressure: false,
+  showSmoke: true,
+  showPressureDistribution:false,
+  showCells:true,
+  fluid: null,
+  airfoilAngle: 0,
+  cOffsetX: 0,
+  cOffsetY: 0
+};
+scene.cScale = canvas.height / scene.simHeight;
+scene.simWidth = canvas.width / scene.cScale;
+
+
+
 function cX(x) {
-  return x * cScale;
+  return (x + scene.cOffsetX) * scene.cScale;
 }
 
 function cY(y) {
-  return canvas.height - y * cScale;
+  return canvas.height - (y + scene.cOffsetY) * scene.cScale;
 }
 
 function setupAirfoil() {
@@ -80,28 +106,6 @@ function setupAirfoil() {
 
 // ----------------- start of simulator ------------------------------
 
-var scene = {
-  gravity: 0,
-  dt: 1.0 / 120.0,
-  numIters: 100,
-  frameNr: 0,
-  overRelaxation: 1.9,
-  obstacleX: 0.0,
-  obstacleY: 0.0,
-  obstacleRadius: 0.15,
-  paused: true,
-  sceneNr: 0,
-  showAirfoilBoundary: false,
-  showStreamlines: false,
-  showVelocities: true,
-  showPressure: false,
-  showSmoke: true,
-  showPressureDistribution:false,
-  showCells:true,
-  fluid: null,
-  airfoilAngle: 0
-};
-
 function setupScene(sceneNr = 0) {
   console.log("setupScene", sceneNr);
 
@@ -115,12 +119,12 @@ function setupScene(sceneNr = 0) {
   var res = 100;
 
   if (sceneNr == 0) res = 50;
-  else if (sceneNr == 1) res = 10;
+  else if (sceneNr == 1) res = 20;
   else if (sceneNr == 1) res = 200;
   else if (sceneNr == 3) res = 400;
 
   var domainHeight = 1.0;
-  var domainWidth = (domainHeight / simHeight) * simWidth;
+  var domainWidth = (domainHeight / scene.simHeight) * scene.simWidth;
   var h = domainHeight / res; // height of a grid cell
 
   var numX = Math.floor(domainWidth / h);
@@ -171,7 +175,7 @@ function setupScene(sceneNr = 0) {
       if (j % 20 < 4) f.cells[j].m = 0;
     }
 
-    //setObstacle(0.401, 0.501, true);
+    setObstacle(0.401, 0.501, true);
 
 
     if (sceneNr > 1 ) {
@@ -483,6 +487,16 @@ function draw() {
   c.fillText("FPS: " + fps.toFixed(2), 20, y + 30);
 
   c.fillText("Angle: " + scene.airfoilAngle.toFixed(1), 20, y + 60);
+
+  // draw error points
+  c.fillStyle = "#f00";
+  c.strokeStyle = '#fff';
+  f.errorPoints.forEach((p)=>{
+    c.beginPath();
+    c.arc(cX(p.x), cY(p.y), 3, 0, 2*Math.PI);
+    c.fill();
+    c.stroke();
+  });
 }
 
 function setObstacle(x, y, reset) {
@@ -606,8 +620,8 @@ function startDrag(x, y) {
   let my = y - bounds.top - canvas.clientTop;
   mouseDown = true;
 
-  x = mx / cScale;
-  y = (canvas.height - my) / cScale;
+  x = mx / scene.cScale - scene.cOffsetX;
+  y = (canvas.height - my) / scene.cScale - scene.cOffsetY;
 
   // DIAGNOSTICS
   var cell = f.getCellAt(x,y);
@@ -623,8 +637,8 @@ function drag(x, y) {
   let bounds = canvas.getBoundingClientRect();
   let mx = x - bounds.left - canvas.clientLeft;
   let my = y - bounds.top - canvas.clientTop;
-  x = mx / cScale;
-  y = (canvas.height - my) / cScale;
+  x = mx / scene.cScale - scene.cOffsetX;
+  y = (canvas.height - my) / scene.cScale - scene.cOffsetY;
   
   if (mouseDown) {
     //setObstacle(x,y, false);
@@ -635,7 +649,20 @@ function drag(x, y) {
 
     setObstacle(0.401, 0.501, true);
     */
-  } 
+  } else {
+    // analyse what's under the cursor
+    try {
+      var cell = f.getCellAt(x,y);
+      
+      var u = f.sampleField(x,y, 'u');
+      //console.log(u, cell);
+
+    } catch(e) {
+      console.error(e, x, y);
+    }
+    
+
+  }
 }
 
 function endDrag() {
@@ -727,6 +754,7 @@ function init() {
   var setupFolder = gui.addFolder('Setup');
 
   setupFolder.add(scene, 'airfoilAngle', -90, 90, 1).onChange(()=>{
+    f.reset();
     setObstacle(0.401, 0.501, true);
   });
 
@@ -752,6 +780,11 @@ function init() {
   visFolder.add(scene, 'showSmoke');
 
   visFolder.add(scene, 'overRelaxation', 0.5, 1.9, 0.1);
+
+  var viewFolder = gui.addFolder('View');
+  viewFolder.add(scene, 'cOffsetX');
+  viewFolder.add(scene, 'cOffsetY');
+  viewFolder.add(scene, 'cScale');
 
   update();
 }
