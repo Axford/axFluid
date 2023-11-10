@@ -19,9 +19,6 @@ var simHeight = 1.2;
 var cScale = canvas.height / simHeight;
 var simWidth = canvas.width / cScale;
 
-var hoverX = 0;
-var hoverY = 0;
-
 var airfoilSteps = 200;
 var airfoilUpperProfile = [];
 var airfoilLowerProfile = [];
@@ -95,7 +92,7 @@ var scene = {
   paused: true,
   sceneNr: 0,
   showAirfoilBoundary: false,
-  showStreamlines: true,
+  showStreamlines: false,
   showVelocities: true,
   showPressure: false,
   showSmoke: true,
@@ -118,7 +115,7 @@ function setupScene(sceneNr = 0) {
   var res = 100;
 
   if (sceneNr == 0) res = 50;
-  else if (sceneNr == 1) res = 20;
+  else if (sceneNr == 1) res = 10;
   else if (sceneNr == 1) res = 200;
   else if (sceneNr == 3) res = 400;
 
@@ -150,11 +147,17 @@ function setupScene(sceneNr = 0) {
         var cell = f.cells[i*n + j];
         var s = 1.0; // fluid
         if (i == 0 || j == 0 || j == f.numY - 1) s = 0.0; // solid
+
+        if (i==4 && j == 3) s = 0;
         cell.s = s;
 
         if (i==1) {
           cell.inU = inVel;
-          cell.setU(inVel);
+          cell.u = inVel;
+        }
+
+        if (i==f.numX-1) {
+          cell.sink = true;
         }
       }
     }
@@ -249,6 +252,9 @@ function draw() {
     minQ = Math.min(minQ, f.cells[i].incompressibility);
     maxQ = Math.max(maxQ, f.cells[i].incompressibility);
   }
+
+  if (minP > -1) minP = -1;
+  if (maxP < 1) maxP = 1;
 
   //minQ = -2;
   //maxQ = 2;
@@ -450,12 +456,14 @@ function draw() {
     c.lineWidth = 1.0;
   }
 
-  if (scene.showPressure) {
-    var s = "pressure: " + minP.toFixed(0) + " ... " + maxP.toFixed(0) + " N/m";
-    c.fillStyle = "#000000";
-    c.font = "16px Arial";
-    c.fillText(s, 10, 35);
-  }
+
+  if (f.hoverCell) f.hoverCell.drawDiagnostics(c, cX, cY);
+
+  var s = "pressure: " + minP.toFixed(0) + " ... " + maxP.toFixed(0) + " N/m";
+  c.fillStyle = "#000000";
+  c.font = "16px Arial";
+  c.fillText(s, 10, 35);
+
 
   var s = "incompressibility: " + minQ.toFixed(2) + " ... " + maxQ.toFixed(2);
   c.fillStyle = "#000000";
@@ -484,8 +492,6 @@ function setObstacle(x, y, reset) {
   setAirfoilObstacle(x, y, reset);
 
   scene.fluid.updateObstacle(obstacle);
-
-  scene.showAirfoilBoundary = true;
 }
 
 function setAirfoilObstacle(x, y, reset) {
@@ -606,7 +612,7 @@ function startDrag(x, y) {
   // DIAGNOSTICS
   var cell = f.getCellAt(x,y);
   if (cell) {
-    cell.hover = true;
+    f.hoverCell = cell;
     console.log('cell',x,y, cell);
   }
 

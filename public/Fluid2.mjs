@@ -3,7 +3,7 @@ import BoundingBox from "./BoundingBox.mjs";
 import Vector from "./Vector.mjs";
 
 
-const MAX_LEVELS = 4;
+const MAX_LEVELS = 3;
 
 // maintain only one level difference between adjacent cells
 
@@ -20,6 +20,7 @@ class FluidCell {
     this.inU = 0;
     this.newU = 0;
     this.newV = 0;
+    this.sink = false; // outer edge, can absorb any influx
     // pressure
     this.p = 0;
     // solidity
@@ -41,6 +42,11 @@ class FluidCell {
     this.vvx = this.vp.x;
     this.vvy = this.vp.y;
 
+    this.left = [this];
+    this.right = [this];
+    this.above = [this];
+    this.below = [this];
+
     this.cells = null;
     this.level = level;
     this.childLevel = 0;
@@ -48,15 +54,13 @@ class FluidCell {
   }
 
   setU(u) {
-    if (this.s == 0) this.u = 0;
-    else if (this.inU) this.u = this.inU;
-    else this.u = u;
+    //if (this.s == 0) this.u = 0;
+    this.u = u;
   }
 
   setV(v) {
-    if (this.s == 0) this.v = 0;
-    else if (this.inV) this.v = this.inV;
-    else this.v = v;
+    //if (this.s == 0) this.v = 0;
+    this.v = v;
   }
 
   drawPressureFill(c, cX, cY, getSciColor, minP, maxP) {
@@ -95,55 +99,96 @@ class FluidCell {
       })
     } else {
         // left boundary
-        c.lineWidth = 1;
-        c.strokeStyle = this.hover ? '#f00' : '#888';
+        c.lineWidth = this.fluid.hoverCell == this ? 2 : 1;
+        c.strokeStyle = this.fluid.hoverCell == this ? '#f00' : 'rgba(80,80,80,0.5)';
         c.beginPath();
         c.moveTo(cX(this.bb.bottomLeft.x), cY(this.bb.bottomLeft.y));
         c.lineTo(cX(this.bb.topLeft.x), cY(this.bb.topLeft.y));
+        c.lineTo(cX(this.bb.topRight.x), cY(this.bb.topRight.y));
+        if (this.fluid.hoverCell == this) {
+          c.lineTo(cX(this.bb.bottomRight.x), cY(this.bb.bottomRight.y));
+          c.closePath();
+        }
         c.stroke();
-
-
-        // bottom boundary
-        c.beginPath();
-        c.moveTo(cX(this.bb.bottomLeft.x), cY(this.bb.bottomLeft.y));
-        c.lineTo(cX(this.bb.bottomRight.x), cY(this.bb.bottomRight.y));
-        c.stroke();
+        c.lineWidth = 1;
     }
   }
 
   drawVelocities(c, cX, cY, scale) {
-    var u = this.u;
-    var v = this.v;
+    if (this.cells) {
+      this.cells.forEach((cell)=>{
+        cell.drawVelocities(c, cX, cY, scale);
+      })
+    } else {
+      var u = this.u;
+      var v = this.v;
+      
+      c.strokeStyle = "#00f";
+      c.beginPath();
+      var x0 = cX(this.up.x);
+      var x1 = cX(this.up.x + u * scale);
+      var y = cY(this.up.y);
+
+      c.moveTo(x0, y);
+      c.lineTo(x1, y);
+
+      // now show advect Point
+      c.moveTo(x0, y);
+      c.lineTo(cX(this.uvx), cY(this.uvy));
+
+      c.stroke();
+
+      var x = cX(this.vp.x);
+      var y0 = cY(this.vp.y);
+      var y1 = cY(this.vp.y + v * scale);
+
+      c.strokeStyle = "#f00";
+      c.beginPath();
+      c.moveTo(x, y0);
+      c.lineTo(x, y1);
+
+      // now show advect Point
+      c.moveTo(x, y0);
+      c.lineTo(cX(this.vvx), cY(this.vvy));
+
+      c.stroke();
+    }
+  }
+
+  drawDiagnostics(c, cX, cY) {
+    if (!this.fluid.hoverCell == this) return;
+
+    // draw lines to neighbours
+    c.strokeStyle = "#000";
+    c.lineWidth = 2;
+
+    c.beginPath();
     
-    c.strokeStyle = "#00f";
-    c.beginPath();
-    var x0 = cX(this.up.x);
-    var x1 = cX(this.up.x + u * scale);
-    var y = cY(this.up.y);
+    var cx = cX(this.x + this.h/2);
+    var cy = cY(this.y + this.h/2);
 
-    c.moveTo(x0, y);
-    c.lineTo(x1, y);
+    this.left.forEach((a)=>{
+      c.moveTo(cx, cy);
+      c.lineTo(cX(a.x + a.h/2), cY(a.y + a.h/2));
+    });
 
-    // now show advect Point
-    c.moveTo(x0, y);
-    c.lineTo(cX(this.uvx), cY(this.uvy));
+    this.above.forEach((a)=>{
+      c.moveTo(cx, cy);
+      c.lineTo(cX(a.x + a.h/2), cY(a.y + a.h/2));
+    });
 
-    c.stroke();
+    this.right.forEach((a)=>{
+      c.moveTo(cx, cy);
+      c.lineTo(cX(a.x + a.h/2), cY(a.y + a.h/2));
+    });
 
-    var x = cX(this.vp.x);
-    var y0 = cY(this.vp.y);
-    var y1 = cY(this.vp.y + v * scale);
-
-    c.strokeStyle = "#f00";
-    c.beginPath();
-    c.moveTo(x, y0);
-    c.lineTo(x, y1);
-
-    // now show advect Point
-    c.moveTo(x, y0);
-    c.lineTo(cX(this.vvx), cY(this.vvy));
+    this.below.forEach((a)=>{
+      c.moveTo(cx, cy);
+      c.lineTo(cX(a.x + a.h/2), cY(a.y + a.h/2));
+    });
 
     c.stroke();
+    c.lineWidth = 1;
   }
 
   updateChildLevel(childLevel) {
@@ -158,10 +203,9 @@ class FluidCell {
     this.cells = [];
     for (var i = 0; i < 2; i++) {
       for (var j = 0; j < 2; j++) {
-        var index = i * this.numY + j;
         var x1 = this.x + (i + 0) * this.h/2;
         var y1 = this.y + (j + 0) * this.h/2;
-        var cell = new FluidCell(this, this, x1,y1,this.h/2, this.level+1);
+        var cell = new FluidCell(this.fluid, this, x1,y1,this.h/2, this.level+1);
         this.cells.push( cell );
 
         // sud-divide further?
@@ -186,6 +230,81 @@ class FluidCell {
     } 
     console.error(this.x, this.y, x,y, x0, y0);
     return this;
+  }
+
+
+  boundaryCells(i1,i2) {
+    if (!this.cells) return [this];
+
+    var res = [];
+    res = this.cells[i1].boundaryCells(i1,i2);
+    res = res.concat(this.cells[i2].boundaryCells(i1,i2));
+    return res;
+  }
+
+
+  coordinateOverlap(p1, w1, p2, w2) {
+    var v = Math.min(p1+w1, p2+w2) - Math.max(p1, p2);
+    return v > 0;
+  }
+
+  updateNeighbours() {
+    // expand bordering cells (of any level)
+    if (this.above.length == 1) this.above = this.above[0].boundaryCells(0*2+0, 1*2+0);
+    if (this.below.length == 1) this.below = this.below[0].boundaryCells(0*2+1, 1*2+1);
+    if (this.left.length == 1) this.left = this.left[0].boundaryCells(1*2+0, 1*2+1);
+    if (this.right.length == 1) this.right = this.right[0].boundaryCells(0*2+0, 0*2+1);
+
+    // prune boundary cells for only those that overlap with this
+    _.remove(this.above, (cell, index) => {
+      return !this.coordinateOverlap(this.x, this.h, cell.x, cell.h);
+    });
+    _.remove(this.below, (cell, index) => {
+      return !this.coordinateOverlap(this.x, this.h, cell.x, cell.h);
+    });
+    _.remove(this.left, (cell, index) => {
+      return !this.coordinateOverlap(this.y, this.h, cell.y, cell.h);
+    });
+    _.remove(this.right, (cell, index) => {
+      return !this.coordinateOverlap(this.y, this.h, cell.y, cell.h);
+    });
+
+
+    if (!this.cells) return;
+
+
+    // bottom left
+    this.cells[0 * 2 + 0].left = _.clone(this.left);
+    this.cells[0 * 2 + 0].above = [this.cells[0 * 2 + 1]];
+    this.cells[0 * 2 + 0].right = [this.cells[1 * 2 + 0]];
+    this.cells[0 * 2 + 0].below = _.clone(this.below);
+
+    // top left
+    this.cells[0 * 2 + 1].left = _.clone(this.left);
+    this.cells[0 * 2 + 1].above = _.clone(this.above);
+    this.cells[0 * 2 + 1].right = [this.cells[1 * 2 + 1]];
+    this.cells[0 * 2 + 1].below = [this.cells[0 * 2 + 0]];
+
+    // bottom right
+    this.cells[1 * 2 + 0].left = [this.cells[0 * 2 + 0]];
+    this.cells[1 * 2 + 0].above = [this.cells[1 * 2 + 1]];
+    this.cells[1 * 2 + 0].right = _.clone(this.right);
+    this.cells[1 * 2 + 0].below = _.clone(this.below);
+
+    // top right
+    this.cells[1 * 2 + 1].left = [this.cells[0 * 2 + 1]]
+    this.cells[1 * 2 + 1].above = _.clone(this.above);
+    this.cells[1 * 2 + 1].right = _.clone(this.right);
+    this.cells[1 * 2 + 1].below = [this.cells[1 * 2 + 0]];
+    
+    
+    // update neighbours of child cells
+    for (var i = 0; i < 2; i++) {
+      for (var j = 0; j < 2; j++) {
+        var index = i * 2 + j;
+        this.cells[index].updateNeighbours();
+      }
+    }
   }
 
   updateObstacle(obstacle) {
@@ -219,10 +338,28 @@ class FluidCell {
   }
 
 
+  resetPressure() {
+    this.p = 0;
+    if (this.cells) {
+      this.cells.forEach((cell)=>{
+        cell.resetPressure();
+      });
+    }
+  }
+
+
   solveIncompressibility(relax, cp, dt) {
 
     if (this.cells) {
+      this.cells.forEach((cell)=>{
+        cell.solveIncompressibility(relax, cp, dt);
+      });
 
+      // aggregate values from children to this level
+      //this.u = this.cells[0 * 2 + 0].u + this.cells[0 * 2 + 1].u;
+      //this.v = this.cells[0 * 2 + 0].v + this.cells[1 * 2 + 0].v;
+
+      return;
     }
 
     // this cell solid if s=0, so skip as nothing to solve
@@ -235,17 +372,17 @@ class FluidCell {
 
     var offset = this.h/16;
 
-    // get neighbours - sample at approx centre of cell, just over the boundary
-    var left = this.fluid.getCellAt(this.x - offset, this.up.y);
-    var right = this.fluid.getCellAt(this.x + this.h + offset, this.up.y);
-    var above = this.fluid.getCellAt(this.vp.x, this.y + this.h + offset);
-    var below = this.fluid.getCellAt(this.vp.x, this.y - offset );
+    // get neighbours
+    var left = this.left;
+    var right = this.right;
+    var above = this.above;
+    var below = this.below;
     
-    var sx0 = left.s; // cell to left
-    var sx1 = right.s;  // cell to right
-    var sy0 = below.s;  // cell below
-    var sy1 = above.s;  // cell above
-    var s = sx0 + sx1 + sy0 + sy1;
+    this.sx0 = _.reduce(left, (sum, a)=>{ return  sum + a.s * Math.min(a.h / this.h,1) }, 0);
+    this.sx1 = _.reduce(right, (sum, a)=>{ return  sum + a.s * Math.min(a.h / this.h,1) }, 0);
+    this.sy0 = _.reduce(below, (sum, a)=>{ return  sum + a.s * Math.min(a.h / this.h,1) }, 0);
+    this.sy1 = _.reduce(above, (sum, a)=>{ return  sum + a.s * Math.min(a.h / this.h,1) }, 0);
+    var s = this.sx0 + this.sx1 + this.sy0 + this.sy1;
 
     // if all neighbour cells are solid (s=0), then also nothing to solve
     if (s == 0.0) {
@@ -255,27 +392,122 @@ class FluidCell {
       return;
     }
     
-
     // total divergence (outflow)
     var div =
-      right.u - // right boundary
+      _.reduce(right, (sum, a)=>{ return  sum + a.u * Math.min(this.h / a.h, 1) }, 0) - // right boundary
       this.u + // left boundary
-      above.v - // top boundary
+      _.reduce(above, (sum, a)=>{ return  sum + a.v * Math.min(this.h / a.h, 1) }, 0) - // top boundary
       this.v; // bottom boundary
+
+
+    this.div = div;
+    if (this.sink) div = 0;
 
     var p = -div / s;
     p *= relax;
     this.p += cp * p * this.h;
 
     // adjust velocity vectors to rebalance in vs out flow
-    this.u -= sx0 * p;
-    right.u += sx1 * p;
-    this.v -= sy0 * p;
-    above.v += sy1 * p;
+    this.u -= this.sx0 * p;
+    right.forEach((a)=>{
+      if (a.s == 1) a.u += this.sx1 * p / Math.max(this.h / a.h, 1);
+    })
+    //right.u += sx1 * p;
+    this.v -= this.sy0 * p;
+    //above.v += sy1 * p;
+    above.forEach((a)=>{
+      if (a.s == 1) a.v += this.sy1 * p / Math.max(this.h / a.h, 1);
+    })
 
     // quality check
     var q = div;
     this.incompressibility = q;
+  }
+
+
+  startAdvectVel() {
+    this.newU = this.u;
+    this.newV = this.v;
+
+    // start children
+    if (this.cells) {
+      this.cells.forEach((cell)=>{
+        cell.startAdvectVel();
+      });
+    }
+  }
+
+  advectVel(dt) {
+
+    if (this.cells) {
+      this.cells.forEach((cell)=>{
+        cell.advectVel(dt);
+      });
+
+      return;
+    }
+
+    // u component...  
+    if (this.s != 0.0 && this.sx0 != 0 && !this.sink) {
+      var x = this.up.x;
+      var y = this.up.y;
+      var u = this.u; // starting u
+      //var v = this.avgV(i, j);
+      var v = this.fluid.sampleField(x,y, this.V_FIELD);
+      x = x - dt * u;
+      y = y - dt * v;
+
+      if (isNaN(v)) console.error('blergh v',x,y);
+      
+      try {
+        this.uvx = x;
+        this.uvy = y;
+        u = this.fluid.sampleField(x, y, this.U_FIELD);
+      } catch(e) {
+        console.error(this,x,y,u,v);
+      }
+      if (isNaN(u)) {
+        console.error(i,j,x,y,u,v);
+      } else this.newU = u;
+    }
+
+    // v component... 
+    //if (cell.s != 0.0 && cell.below.s != 0 && i < this.numX - 1) {
+    if (this.s != 0.0 && this.sy0 != 0 && !this.sink) {
+      var x = this.vp.x
+      var y = this.vp.y;
+
+      //var u = this.avgU(i, j);
+      var u = this.fluid.sampleField(x,y, this.U_FIELD);
+      
+      if (isNaN(u)) console.error('blergh u', x,y);
+
+      var v = this.v;
+      x = x - dt * u;
+      y = y - dt * v;
+
+      try {
+        this.vvx = x;
+        this.vvy = y;      
+        v = this.fluid.sampleField(x, y, this.V_FIELD);
+      } catch(e) {
+        console.error(this,x,y,u,v);
+      }
+      
+      if (!isNaN(v)) this.newV = v;
+    }
+  }
+
+  endAdvectVel() {
+    this.u = this.newU;
+    this.v = this.newV;
+
+    // start children
+    if (this.cells) {
+      this.cells.forEach((cell)=>{
+        cell.endAdvectVel();
+      });
+    }
   }
 
 
@@ -308,9 +540,9 @@ export default class Fluid {
 
     this.cellArea = h * h;
 
-    this.U_FIELD = 0;
-    this.V_FIELD = 1;
-    this.S_FIELD = 2;
+    this.U_FIELD = 'u';
+    this.V_FIELD = 'v';
+    this.S_FIELD = 'm';
 
     this.scene = null;
 
@@ -326,6 +558,32 @@ export default class Fluid {
     this.timers.total = new TimerStats("total");
   }
 
+  updateNeighbours() {
+    // update left, right, above, below references
+    // blanket set all top level references
+    for (var i = 0; i < this.numX; i++) {
+      for (var j = 0; j < this.numY; j++) {
+        var ci = i * this.numY + j;
+        var cell = this.cells[ci];
+
+        if (i>0) cell.left = [this.cells[(i-1) * this.numY + j]];
+        if (i<this.numX-1) cell.right = [this.cells[(i+1) * this.numY + j]];
+
+        if (j>0) cell.below = [this.cells[(i) * this.numY + j - 1]];
+        if (j<this.numY-1) cell.above = [this.cells[(i) * this.numY + j + 1]];
+      }
+    }
+
+    // then recurse:
+    for (var i = 0; i < this.numX; i++) {
+      for (var j = 0; j < this.numY; j++) {
+        var ci = i * this.numY + j;
+        var cell = this.cells[ci];
+        cell.updateNeighbours();
+      }
+    }
+  }
+
   updateObstacle(obstacle) {
     // update "solid" state
     for (var i = 1; i < this.numX - 2; i++) {
@@ -336,6 +594,8 @@ export default class Fluid {
         cell.updateObstacle(obstacle);
       }
     }
+
+    this.updateNeighbours();
   }
 
   updateSubdivision() {
@@ -357,6 +617,8 @@ export default class Fluid {
 
       }
     }
+
+    this.updateNeighbours();
   }
 
   solveIncompressibility(numIters, dt) {
@@ -368,7 +630,7 @@ export default class Fluid {
       // tween relaxation toward 1
       var relax = iter == numIters - 1 ? 1 : this.scene.overRelaxation;
 
-      for (var i = 1; i < this.numX - 1; i++) {
+      for (var i = 1; i < this.numX; i++) {
         for (var j = 1; j < this.numY - 1; j++) {
 
           this.cells[i * n + j].solveIncompressibility(relax, cp, dt);
@@ -380,6 +642,7 @@ export default class Fluid {
 
   extrapolate() {
     var n = this.numY;
+    // maintain flow around the boundary
     for (var i = 0; i < this.numX; i++) {
       this.cells[i * n + 0].setU(this.cells[i * n + 1].u);
       this.cells[i * n + this.numY - 1].setU(this.cells[i * n + this.numY - 2].u);
@@ -406,58 +669,39 @@ export default class Fluid {
     var h1 = 1.0 / h;
     var h2 = 0.5 * h;
 
-    // ensure x and y coords are within bounds
-    x = Math.max(Math.min(x, this.numX * h), 0);
-    y = Math.max(Math.min(y, this.numY * h), 0);
+    if (isNaN(x)) console.error('aaargh');
 
-    var cell = this.getCellAt(x,y);
+    // ensure x and y coords are within bounds
+    x = Math.max(Math.min(x, (this.numX-1) * h), 0);
+    y = Math.max(Math.min(y, (this.numY-1) * h), 0);
+
+    var cell;
+    try {
+      cell = this.getCellAt(x,y);
+    } catch(e) {
+      console.error(x,y,cell);
+    }
 
     var tx = (x - cell.x) / cell.h;
     var ty = (y - cell.y) / cell.h;
 
-    var offset = cell.h / 16;
-
     // get neighbours
-    var above = this.getCellAt(cell.x, cell.y + cell.h + offset);
-    var below = this.getCellAt(cell.x, cell.y - offset);
-    var right = this.getCellAt(cell.x + cell.h + offset, cell.y);
+    var above = cell.above[0];
+    var below = cell.below[0];
+    var right = cell.right[0];
 
     var sx = 1.0 - tx;
     var sy = 1.0 - ty;
 
     var val = 0;
     
-    switch (field) {
-      case this.U_FIELD:
-        try {
-        val =
-        sx * sy * cell.u +
-        tx * sy * right.u +
-        tx * ty * below.u +
-        sx * ty * above.u;
-      } catch(e) {
-        console.error(x,y,x0,y0,x1,y1, this.cells[x0 * n + y0]);
-      }
-        break;
-      case this.V_FIELD:
-        val =
-        sx * sy * cell.v +
-        tx * sy * right.v +
-        tx * ty * below.v +
-        sx * ty * above.v;
-        break;
-      case this.S_FIELD:
-        try {
-          val =
-        sx * sy * cell.m +
-        tx * sy * right.m +
-        tx * ty * below.m +
-        sx * ty * above.m; 
-        } catch(e) {
-          console.error(x,y,x0,y0,x1,y1, this.cells[x0 * n + y0]);
-        }
-        break;
-    }
+    if (!cell || !above || !below || !right ) return 0;
+
+    val =
+        sx * sy * cell[field] +
+        tx * sy * right[field] +
+        tx * ty * below[field] +
+        sx * ty * above[field];
 
     return val;
   }
@@ -478,10 +722,9 @@ export default class Fluid {
   }
 
   advectVel(dt) {
-    for (var i = 1; i < this.numX - 1; i++) {
-      for (var j = 1; j < this.numY - 1; j++) {
-        this.cells[i*this.numY + j].newU = this.cells[i*this.numY + j].u;
-        this.cells[i*this.numY + j].newV = this.cells[i*this.numY + j].v;
+    for (var i = 0; i < this.numX; i++) {
+      for (var j = 0; j < this.numY; j++) {
+        this.cells[i*this.numY + j].startAdvectVel();
       }
     }
 
@@ -490,65 +733,25 @@ export default class Fluid {
     var h2 = 0.5 * h;
 
     for (var i = 1; i < this.numX; i++) {
-      for (var j = 1; j < this.numY; j++) {
+      for (var j = 1; j < this.numY-1; j++) {
         //cnt++;
         var ci = i * n + j;
         var cell = this.cells[ci];
-        var cbb = cell.bb;
-
-        // u component...  
-        if (cell.s != 0.0 && this.cells[(i-1)*n+j].s != 0 && j < this.numY - 1) {
-          var x = cell.up.x;
-          var y = cell.up.y;
-          var u = cell.u; // starting u
-          //var v = this.avgV(i, j);
-          var v = this.sampleField(x,y, this.V_FIELD);
-          x = x - dt * u;
-          y = y - dt * v;
-          
-          try {
-            cell.uvx = x;
-            cell.uvy = y;
-            u = this.sampleField(x, y, this.U_FIELD);
-          } catch(e) {
-            console.error(i,j,x,y,u,v);
-          }
-          if (isNaN(u)) {
-            console.error(i,j,x,y,u,v);
-          } else cell.newU = u;
-        }
-
-        // v component... 
-        if (cell.s != 0.0 && this.cells[i*n+(j-1)].s != 0 && i < this.numX - 1) {
-          var x = cell.vp.x
-          var y = cell.vp.y;
-
-          //var u = this.avgU(i, j);
-          var u = this.sampleField(x,y, this.U_FIELD);
-          var v = cell.v;
-          x = x - dt * u;
-          y = y - dt * v;
-
-          cell.vvx = x;
-          cell.vvy = y;
-          
-          v = this.sampleField(x, y, this.V_FIELD);
-          if (!isNaN(v)) cell.newV = v;
-        }
+        
+        cell.advectVel(dt);
       }
     }
 
-    for (var i = 1; i < this.numX - 1; i++) {
-      for (var j = 1; j < this.numY - 1; j++) {
-        this.cells[i*this.numY + j].setU(this.cells[i*this.numY + j].newU);
-        this.cells[i*this.numY + j].setV(this.cells[i*this.numY + j].newV);
+    for (var i = 0; i < this.numX; i++) {
+      for (var j = 0; j < this.numY; j++) {
+        this.cells[i*this.numY + j].endAdvectVel();
       }
     }
   }
 
   advectSmoke(dt) {
-    for (var i = 1; i < this.numX - 1; i++) {
-      for (var j = 1; j < this.numY - 1; j++) {
+    for (var i = 0; i < this.numX; i++) {
+      for (var j = 0; j < this.numY; j++) {
         this.cells[i*this.numY + j].newM = this.cells[i*this.numY + j].m;
       }
     }
@@ -569,8 +772,8 @@ export default class Fluid {
         }
       }
     }
-    for (var i = 1; i < this.numX - 1; i++) {
-      for (var j = 1; j < this.numY - 1; j++) {
+    for (var i = 0; i < this.numX; i++) {
+      for (var j = 0; j < this.numY; j++) {
         this.cells[i*this.numY + j].m = this.cells[i*this.numY + j].newM;
       }
     }
@@ -588,7 +791,7 @@ export default class Fluid {
     //this.p.fill(0.0);
     for (var i = 1; i < this.numX - 1; i++) {
       for (var j = 1; j < this.numY - 1; j++) {
-        this.cells[i*this.numY + j].p = 0;
+        this.cells[i*this.numY + j].resetPressure();
       }
     }
 
