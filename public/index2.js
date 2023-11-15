@@ -26,6 +26,8 @@ var frame = 0;
 var fps = 0;
 var fpsTimer = 0;
 
+var mousePos = new Vector(0,0);  
+var mouseFlow = new Vector(0,0); // u, v
 
 var scene = {
   simHeight: 1.2,
@@ -497,6 +499,28 @@ function draw() {
     c.fill();
     c.stroke();
   });
+
+  // sample mouse flow
+  mouseFlow.x = f.sampleField(mousePos.x, mousePos.y, 'u');
+  mouseFlow.y = f.sampleField(mousePos.x, mousePos.y, 'v');
+
+  // draw mouse flow
+  c.strokeStyle = "#000";
+  c.lineWidth = 2;
+  c.beginPath();
+  var x0 = cX(mousePos.x);
+  var x1 = cX(mousePos.x + mouseFlow.x * scale);
+  var y0 = cY(mousePos.y);
+  var y1 = cY(mousePos.y + mouseFlow.y * scale);
+
+  // u
+  c.moveTo(x0, y0);
+  c.lineTo(x1, y0);
+  // v
+  c.moveTo(x0, y0);
+  c.lineTo(x0, y1);
+
+  c.stroke();
 }
 
 function setObstacle(x, y, reset) {
@@ -637,8 +661,8 @@ function drag(x, y) {
   let bounds = canvas.getBoundingClientRect();
   let mx = x - bounds.left - canvas.clientLeft;
   let my = y - bounds.top - canvas.clientTop;
-  x = mx / scene.cScale - scene.cOffsetX;
-  y = (canvas.height - my) / scene.cScale - scene.cOffsetY;
+  mousePos.x = mx / scene.cScale - scene.cOffsetX;
+  mousePos.y = (canvas.height - my) / scene.cScale - scene.cOffsetY;
   
   if (mouseDown) {
     //setObstacle(x,y, false);
@@ -652,13 +676,12 @@ function drag(x, y) {
   } else {
     // analyse what's under the cursor
     try {
-      var cell = f.getCellAt(x,y);
+      var cell = f.getCellAt(mousePos.x, mousePos.y);
       
-      var u = f.sampleField(x,y, 'u');
       //console.log(u, cell);
 
     } catch(e) {
-      console.error(e, x, y);
+      console.error(e, x, y, mousePos, mouseFlow);
     }
     
 
@@ -758,12 +781,12 @@ function init() {
     setObstacle(0.401, 0.501, true);
   });
 
-
-  var visFolder = gui.addFolder('Visualisation');
-
-  visFolder.add(scene, 'sceneNr', 1, 3, 1).onFinishChange(()=>{
+  setupFolder.add(scene, 'sceneNr', 1, 3, 1).onFinishChange(()=>{
     setupScene(scene.sceneNr);
   });
+
+
+  var visFolder = gui.addFolder('Visualisation');
 
   visFolder.add(scene, 'showCells');
 
@@ -782,9 +805,9 @@ function init() {
   visFolder.add(scene, 'overRelaxation', 0.5, 1.9, 0.1);
 
   var viewFolder = gui.addFolder('View');
-  viewFolder.add(scene, 'cOffsetX');
-  viewFolder.add(scene, 'cOffsetY');
-  viewFolder.add(scene, 'cScale');
+  viewFolder.add(scene, 'cOffsetX',-2,2,0.01);
+  viewFolder.add(scene, 'cOffsetY',-2,2,0.01);
+  viewFolder.add(scene, 'cScale',400,5000,10);
 
   update();
 }

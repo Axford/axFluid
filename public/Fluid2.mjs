@@ -5,6 +5,10 @@ import Vector from "./Vector.mjs";
 
 const MAX_LEVELS = 4;
 
+function sqr(x) { return x * x; }
+
+const SQRT2 = Math.sqrt(2);
+
 // maintain only one level difference between adjacent cells
 
 class FluidCell {
@@ -16,6 +20,7 @@ class FluidCell {
     this.cx = x + h/2;
     this.cy = y + h/2;
     this.h = h;
+    this.area = Math.sqrt(h*h);
     this.u = 0;
     this.v = 0;
     this.inV = 0;
@@ -142,8 +147,8 @@ class FluidCell {
       c.lineTo(x1, y);
 
       // now show advect Point
-      c.moveTo(x0, y);
-      c.lineTo(cX(this.uvx), cY(this.uvy));
+      //c.moveTo(x0, y);
+      //c.lineTo(cX(this.uvx), cY(this.uvy));
 
       c.stroke();
 
@@ -157,8 +162,8 @@ class FluidCell {
       c.lineTo(x, y1);
 
       // now show advect Point
-      c.moveTo(x, y0);
-      c.lineTo(cX(this.vvx), cY(this.vvy));
+      //c.moveTo(x, y0);
+      //c.lineTo(cX(this.vvx), cY(this.vvy));
 
       c.stroke();
     }
@@ -168,7 +173,7 @@ class FluidCell {
     if (!this.fluid.hoverCell == this) return;
 
     // draw lines to neighbours
-    c.strokeStyle = "#000";
+    c.strokeStyle = "rgba(0,0,0,0.3)";
     c.lineWidth = 2;
 
     c.beginPath();
@@ -462,7 +467,7 @@ class FluidCell {
       var y = this.up.y;
       var u = this.u; // starting u
       //var v = this.avgV(i, j);
-      var v = this.fluid.sampleField(x,y, this.fluid.V_FIELD);
+      var v = this.fluid.sampleVField(x,y);
       var x1 = x - dt * u;
       var y1 = y - dt * v;
 
@@ -474,7 +479,7 @@ class FluidCell {
       try {
         if (!isNaN(x1)) this.uvx = x1;
         if (!isNaN(y1)) this.uvy = y1;
-        u = this.fluid.sampleField(x1, y1, this.fluid.U_FIELD);
+        u = this.fluid.sampleUField(x1, y1);
       } catch(e) {
         console.error(this,x,y,x1,y1,u,v);
       }
@@ -490,7 +495,7 @@ class FluidCell {
       var y = this.vp.y;
 
       //var u = this.avgU(i, j);
-      var u = this.fluid.sampleField(x,y, this.fluid.U_FIELD);
+      var u = this.fluid.sampleUField(x,y);
       
       if (isNaN(u)) {
         console.error('blergh u', x,y);
@@ -504,7 +509,7 @@ class FluidCell {
       try {
         if (!isNaN(x1)) this.vvx = x1;
         if (!isNaN(x1)) this.vvy = y1;
-        v = this.fluid.sampleField(x1, y1, this.fluid.V_FIELD);
+        v = this.fluid.sampleVField(x1, y1);
       } catch(e) {
         console.error(this,x,y,u,v);
       }
@@ -645,7 +650,7 @@ export default class Fluid {
           this.cells[(i)*this.numY + (j+1)].childLevel
         );
         if (maxLevel > cell.childLevel+1 && cell.s == 1) {
-          //cell.subdivide(maxLevel-1);
+          cell.subdivide(maxLevel-1);
         }
 
       }
@@ -702,24 +707,15 @@ export default class Fluid {
     var h1 = 1.0 / h;
     var h2 = 0.5 * h;
 
-    if (isNaN(x) || isNaN(y)) {
-      console.error('aaargh');
-      return 0;
-    }
-
-    // ensure x and y coords are within bounds
-    var x1 = Math.max(Math.min(x, (this.numX-1) * h), 0);
-    var y1 = Math.max(Math.min(y, (this.numY-1) * h), 0);
-
     var cell;
     try {
-      cell = this.getCellAt(x1,y1);
+      cell = this.getCellAt(x,y);
     } catch(e) {
-      console.error(x,y,x1,y1,cell);
+      console.error(x,y,cell);
     }
 
-    var tx = (x1 - cell.x) / cell.h;
-    var ty = (y1 - cell.y) / cell.h;
+    var tx = (x - cell.x) / cell.h;
+    var ty = (y - cell.y) / cell.h;
 
     // get neighbours
     var above = cell.above[0];
@@ -744,6 +740,133 @@ export default class Fluid {
 
     if (isNaN(val)) {
       console.error(tx,ty,sx,sy,field, cell[field], above[field], below[field], right[field]);
+    }
+
+    return val;
+  }
+
+  sampleUField(x, y) {
+    var n = this.numY;
+    var h = this.h;
+    var h1 = 1.0 / h;
+    var h2 = 0.5 * h;
+
+    // sample a linear weighted average of values from around the point (x,y)
+    // if y is above midpoint of cell then use the above, right and above right cells as reference
+    // otherwise use below, right and below right as reference
+
+    // 
+    var bl, br, tl, tr;
+
+    bl = this.getCellAt(x, y);
+    // if y above midpoint
+    if (y >= bl.up.y) {
+      tl = this.getCellAt(x, bl.y + bl.h);
+      br = this.getCellAt(bl.x + bl.h, y);
+      tr = this.getCellAt(bl.x + bl.h, bl.y + bl.h);
+
+    } else {
+      tl = bl;
+      tr = this.getCellAt(tl.x + tl.h, y);
+      bl = this.getCellAt(x, tl.y - Number.EPSILON);
+      br = this.getCellAt(tl.x + tl.h, tl.y - Number.EPSILON);
+    }
+
+    var tlv = tl.u;
+    var trv = tr.u;
+    var blv = bl.u;
+    var brv = br.u;
+  
+    var val = 0;
+  
+    // lerp factors ... combined lerps
+    var brbl = (br.up.x - bl.up.x);
+    var tx1 = brbl > 0 ? (x - bl.up.x) / brbl : 0;
+    var trtl = (tr.up.x - tl.up.x);
+    var tx2 = trtl > 0 ? (x - tl.up.x) / trtl : 0;
+    var tx = (tx1 + tx2) / 2;
+
+    var tlbl = (tl.up.y - bl.up.y);
+    var ty1 = tlbl > 0 ? (y - bl.up.y) / tlbl : 0;
+    var trbr = (tr.up.y - br.up.y);
+    var ty2 = trbr > 0 ? (y - br.up.y) / trbr : 0;
+    var ty = (ty1 + ty2) / 2;
+  
+    var sx = 1.0 - tx;
+    var sy = 1.0 - ty;
+
+    val =
+        sx * sy * blv +
+        tx * sy * brv +
+        tx * ty * trv +
+        sx * ty * tlv;
+
+    if (isNaN(val)) {
+      console.error(tx,ty,sx,sy, bl, br, tl, tr);
+    }
+
+    return val;
+  }
+
+  sampleVField(x, y) {
+    var n = this.numY;
+    var h = this.h;
+    var h1 = 1.0 / h;
+    var h2 = 0.5 * h;
+
+    // sample a linear weighted average of values from around the point (x,y)
+    // if x is left of midpoint of cell then use the left, above and above left cells as reference
+    // otherwise use right, above and above right as reference
+
+    // 
+    var bl, br, tl, tr;
+
+    bl = this.getCellAt(x, y);
+    // if x to right of midpoint
+    if (x >= bl.vp.x) {
+      tl = this.getCellAt(x, bl.y + bl.h);
+      br = this.getCellAt(bl.x + bl.h, y);
+      tr = this.getCellAt(bl.x + bl.h, bl.y + bl.h);
+
+    } else {
+      br = bl;
+      bl = this.getCellAt(br.x - Number.EPSILON, y);
+      tl = this.getCellAt(br.x - Number.EPSILON, br.y + br.h);
+      tr = this.getCellAt(x, br.y + br.h);
+    }
+
+    var tlv = tl.v;
+    var trv = tr.v;
+    var blv = bl.v;
+    var brv = br.v;
+  
+    var val = 0;
+  
+    // lerp factors ... combined lerps
+    var brbl = (br.vp.x - bl.vp.x);
+    var tx1 = brbl > 0 ? (x - bl.vp.x) / brbl : 0;
+    var trtl = (tr.vp.x - tl.vp.x);
+    var tx2 = trtl > 0 ? (x - tl.vp.x) / trtl : 0;
+    var tx = (tx1 + tx2) / 2;
+
+    var tlbl = (tl.vp.y - bl.vp.y);
+    var ty1 = tlbl > 0 ? (y - bl.vp.y) / tlbl : 0;
+    var trbr = (tr.vp.y - br.vp.y);
+    var ty2 = trbr > 0 ? (y - br.vp.y) / trbr : 0;
+    var ty = (ty1 + ty2) / 2;
+  
+    var sx = 1.0 - tx;
+    var sy = 1.0 - ty;
+
+    val =
+        sx * sy * blv +
+        tx * sy * brv +
+        tx * ty * trv +
+        sx * ty * tlv;
+    
+
+    if (isNaN(val)) {
+      console.error(tx,ty,sx,sy, bl, br, tl, tr);
     }
 
     return val;
